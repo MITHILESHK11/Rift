@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: ../Dockerfile.backend
+    ports:
+      - "8000:8000"
+    environment:
+      - CANDIDATE_ID=user@example.com
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - DATABASE_URL=sqlite:///./sales_inbox.db
+      - PORT=8000
+    volumes:
+      - ./backend/data:/app/data
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: ../Dockerfile.frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend

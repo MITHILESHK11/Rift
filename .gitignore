@@ -1,0 +1,27 @@
+# Environment & Secrets
+.env
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.sqlite
+*.db
+backend/sales_inbox.db
+.pytest_cache/
+
+# Node / Frontend
+node_modules/
+dist/
+.vite/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# IDE & System
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+extracted_spec.md
