@@ -19,30 +19,6 @@
       "dest": "backend/app/main.py"
     },
     {
-      "src": "/tasks(.*)",
-      "dest": "backend/app/main.py"
-    },
-    {
-      "src": "/ingest(.*)",
-      "dest": "backend/app/main.py"
-    },
-    {
-      "src": "/users(.*)",
-      "dest": "backend/app/main.py"
-    },
-    {
-      "src": "/stats(.*)",
-      "dest": "backend/app/main.py"
-    },
-    {
-      "src": "/chat(.*)",
-      "dest": "backend/app/main.py"
-    },
-    {
-      "src": "/health",
-      "dest": "backend/app/main.py"
-    },
-    {
       "src": "/docs(.*)",
       "dest": "backend/app/main.py"
     },
