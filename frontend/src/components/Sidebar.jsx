@@ -115,17 +115,48 @@ export default function Sidebar({ activeTab, setActiveTab, candidateId, setCandi
         </button>
       </div>
 
-      {/* Footer Nav - Working API Docs Link */}
-      <div className="flex flex-col gap-1 mt-auto pt-4 border-t border-outline-variant">
-        <a
-          href="http://localhost:8000/docs"
-          target="_blank"
-          rel="noreferrer"
-          className="flex items-center gap-3 px-3 py-2 text-on-surface-variant hover:bg-surface-container-high rounded-lg text-body-md font-body-md"
-        >
-          <span className="material-symbols-outlined text-[20px]">help</span>
-          API Docs (/docs)
-        </a>
+      {/* Polished product/developer footer */}
+      <div className="mt-auto pt-4 border-t border-outline-variant flex flex-col gap-2.5 px-3">
+        <div>
+          <h3 className="text-body-sm font-bold text-on-surface tracking-wide leading-tight">RIFT</h3>
+          <p className="text-[11px] text-on-surface-variant font-medium leading-none mt-0.5">AI Sales Inbox</p>
+        </div>
+        
+        <div className="text-[11px] text-on-surface-variant">
+          Built by <span className="font-semibold text-on-surface">Mithilesh Kolhapurkar</span>
+        </div>
+
+        <div className="flex items-center gap-2 text-[11px] text-on-surface-variant/80 font-medium">
+          <a
+            href="https://github.com/MITHILESHK11"
+            target="_blank"
+            rel="noreferrer"
+            className="hover:text-primary transition-colors"
+            title="GitHub Profile"
+          >
+            GitHub
+          </a>
+          <span className="text-outline-variant/60">·</span>
+          <a
+            href="https://www.linkedin.com/in/mithilesh-kolhapurkar"
+            target="_blank"
+            rel="noreferrer"
+            className="hover:text-primary transition-colors"
+            title="LinkedIn Profile"
+          >
+            LinkedIn
+          </a>
+          <span className="text-outline-variant/60">·</span>
+          <button
+            onClick={() => {
+              window.open("https://github.com/MITHILESHK11", "_blank");
+            }}
+            className="hover:text-primary transition-colors text-left"
+            title="Contact Developer via GitHub"
+          >
+            Contact
+          </button>
+        </div>
       </div>
     </nav>
   );
