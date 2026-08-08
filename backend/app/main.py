@@ -50,6 +50,7 @@ app.include_router(users.router)
 
 @app.get("/")
 @app.get("/health")
+@app.get("/api/health")
 def health_check():
     return {
         "status": "healthy",
@@ -59,13 +60,21 @@ def health_check():
         "docs_url": "/docs"
     }
 
+@app.get("/api/docs", include_in_schema=False)
+def api_docs_redirect():
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/docs")
+
 @app.get("/api/sample-emails")
+@app.get("/sample-emails")
 def get_sample_emails(count: int = 250):
     """Utility endpoint supplying synthetic test email batch for frontend testing."""
     return {"emails": generate_sample_emails(count=min(count, 250))}
 
 @app.post("/api/clear-database")
 @app.delete("/api/clear-database")
+@app.post("/clear-database")
+@app.delete("/clear-database")
 async def clear_database():
     """Wipes all tasks, processed email logs, and thread maps from database safely."""
     if os.getenv("ENVIRONMENT", "development").lower() == "production" and not os.getenv("ALLOW_CLEAR_DATABASE", "").lower() == "true":
