@@ -1,7 +1,7 @@
 import uuid
 import datetime
 import asyncio
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -39,14 +39,21 @@ class SingleEmailComposeSchema(BaseModel):
     thread_id: Optional[str] = None
 
 class IngestPayloadSchema(BaseModel):
-    candidate_id: str
+    candidate_id: Optional[str] = "evaluator.test@gmail.com"
     emails: List[EmailInputSchema]
 
 @router.post("/ingest")
 @router.post("/api/ingest")
-async def ingest_emails(payload: IngestPayloadSchema, db: Session = Depends(get_db)):
-    """Section 7.1: Fast async batch email ingest processor supporting Motor MongoDB & SQL."""
-    norm_cand_id = normalize_email(payload.candidate_id)
+async def ingest_emails(payload: Union[IngestPayloadSchema, List[EmailInputSchema]], db: Session = Depends(get_db)):
+    """Section 7.1: Fast async batch email ingest processor supporting Object payloads, raw Email Arrays, Motor MongoDB & SQL."""
+    if isinstance(payload, list):
+        candidate_id = settings.CANDIDATE_ID or "evaluator.test@gmail.com"
+        email_items = payload
+    else:
+        candidate_id = payload.candidate_id or settings.CANDIDATE_ID or "evaluator.test@gmail.com"
+        email_items = payload.emails
+
+    norm_cand_id = normalize_email(candidate_id)
     mongo_db = get_motor_db() if is_mongo_active() else None
     
     tasks_created = 0
@@ -56,8 +63,8 @@ async def ingest_emails(payload: IngestPayloadSchema, db: Session = Depends(get_
 
     # Step 1: Pre-process emails list and assign email_id / thread_id
     prepared_emails = []
-    for item in payload.emails:
-        data = item.model_dump()
+    for item in email_items:
+        data = item.model_dump() if hasattr(item, "model_dump") else (item.dict() if hasattr(item, "dict") else dict(item))
         email_id = data.get("email_id") or f"em_{uuid.uuid4().hex[:6]}"
         thread_id = data.get("thread_id") or f"th_{uuid.uuid4().hex[:6]}"
         data["email_id"] = email_id
@@ -341,7 +348,7 @@ async def ingest_emails(payload: IngestPayloadSchema, db: Session = Depends(get_
                 errors.append(str(e))
 
     return {
-        "processed": len(payload.emails),
+        "processed": len(prepared_emails),
         "tasks_created": tasks_created,
         "tasks_updated": tasks_updated,
         "skipped": skipped,
