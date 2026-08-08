@@ -112,14 +112,6 @@ export default function JsonInput({ onPastedData, onGenerateSample, onIngestSubm
       {/* Sub-bar matching spec 7.3 part 2 */}
       <div className="px-3 py-2 border-t border-outline-variant/30 bg-surface-bright/50 flex justify-between items-center rounded-b-lg">
         <span className="text-[12px] text-on-surface-variant">Synchronous routing via Gemini 2.5 Flash & Rules engine</span>
-        <button
-          onClick={onGenerateSample}
-          type="button"
-          className="text-[12px] text-secondary font-medium hover:underline flex items-center gap-1"
-        >
-          <span className="material-symbols-outlined text-[14px]">auto_awesome</span>
-          Load 250 sample emails batch
-        </button>
       </div>
     </div>
   );
