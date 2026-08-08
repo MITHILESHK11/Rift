@@ -23,7 +23,7 @@ Write a concise 1-2 sentence response reflecting exact supporting_data metrics.
 
 GEMINI_INTERPRET_PROMPT = """
 You are a translation layer for a Sales Inbox Router database.
-Analyze the user's query and map it to a structured query plan.
+Analyze the user's query and conversation history to map it to a structured query plan.
 
 SCHEMA & CONFIGURATION CONTEXT:
 - Assignee IDs: u_aarti (Enterprise), u_rohit (SMB), u_meera (Marketing), u_karan (Alliances), u_divya (Finance), u_triage (Triage)
@@ -32,7 +32,7 @@ SCHEMA & CONFIGURATION CONTEXT:
 - Skipped statuses/reasons: skipped_spam, skipped_ooo, skipped_newsletter, skipped
 
 INTENTS:
-- LIST_TASKS: retrieve tasks (optionally filtered by assignee_id, priority, category)
+- LIST_TASKS: retrieve tasks (optionally filtered by assignee_id, priority, category, query_term)
 - COUNT_TASKS: count total matching tasks
 - LIST_SKIPPED: retrieve skipped emails
 - COUNT_SKIPPED: count skipped emails (optionally filtered by skip_reason: spam, ooo, newsletter)
@@ -41,20 +41,25 @@ INTENTS:
 - LIST_LOW_CONFIDENCE: list tasks where confidence < 0.70
 - LIST_HIGH_PRIORITY: list high priority tasks
 - GENERAL_STATS: get overview stats
+- THREAD_HISTORY: trace history of a specific thread_id or thread reference
 - OUT_OF_SCOPE: out-of-scope actions like sending emails, deleting, updating tasks
 
 Return ONLY a valid JSON object matching this schema:
 {{
-  "intent": "LIST_TASKS" | "COUNT_TASKS" | "LIST_SKIPPED" | "COUNT_SKIPPED" | "SUM_DEAL_VALUE" | "LIST_TRIAGE" | "LIST_LOW_CONFIDENCE" | "LIST_HIGH_PRIORITY" | "GENERAL_STATS" | "OUT_OF_SCOPE",
+  "intent": "LIST_TASKS" | "COUNT_TASKS" | "LIST_SKIPPED" | "COUNT_SKIPPED" | "SUM_DEAL_VALUE" | "LIST_TRIAGE" | "LIST_LOW_CONFIDENCE" | "LIST_HIGH_PRIORITY" | "GENERAL_STATS" | "THREAD_HISTORY" | "OUT_OF_SCOPE",
   "filters": {{
     "category": string or null,
     "assignee_id": string or null,
     "priority": string or null,
     "reason": "spam" | "ooo" | "newsletter" | null,
-    "query_term": string or null
+    "query_term": string or null,
+    "thread_id": string or null
   }},
   "limit": integer
 }}
+
+CONVERSATION HISTORY:
+{history_context}
 
 USER QUERY: {query}
 """
@@ -63,16 +68,25 @@ def fallback_intent_parse(query: str) -> Dict[str, Any]:
     """Offline deterministic regex fallback parser for query intent."""
     q = query.lower().strip()
     intent = "LIST_TASKS"
-    filters = {"category": None, "assignee_id": None, "priority": None, "reason": None, "query_term": None}
+    filters = {"category": None, "assignee_id": None, "priority": None, "reason": None, "query_term": None, "thread_id": None}
     
+    # Out of scope
     if any(ak in q for ak in ["send", "write", "draft", "dispatch", "delete", "remove", "assign", "reply"]):
         return {"intent": "OUT_OF_SCOPE", "filters": filters, "limit": 20}
         
-    if "spurious" in q or "noise rate" in q or "error rate" in q or "stats" in q:
+    # General stats
+    if "spurious" in q or "noise rate" in q or "error rate" in q or "stats" in q or "summarize" in q or "summary" in q or "overview" in q:
         return {"intent": "GENERAL_STATS", "filters": filters, "limit": 20}
         
-    if "deal value" in q or "total value" in q or "revenue" in q or "budget" in q or "value of" in q:
+    # Deal value aggregations
+    if "deal value" in q or "total value" in q or "revenue" in q or "budget" in q or "value of" in q or "lakh" in q or "crore" in q or "potential" in q:
         return {"intent": "SUM_DEAL_VALUE", "filters": filters, "limit": 20}
+
+    # Thread ID extraction
+    thread_match = re.search(r'(th_\w+)', q)
+    if thread_match:
+        filters["thread_id"] = thread_match.group(1)
+        return {"intent": "THREAD_HISTORY", "filters": filters, "limit": 20}
 
     # Assignee filters
     for name, aid in [("aarti", "u_aarti"), ("rohit", "u_rohit"), ("meera", "u_meera"), ("karan", "u_karan"), ("divya", "u_divya"), ("triage", "u_triage")]:
@@ -84,6 +98,7 @@ def fallback_intent_parse(query: str) -> Dict[str, Any]:
         if kw in q:
             filters["category"] = cat
 
+    # Intent refinements
     if "spam" in q:
         intent = "COUNT_SKIPPED"
         filters["reason"] = "spam"
@@ -93,26 +108,38 @@ def fallback_intent_parse(query: str) -> Dict[str, Any]:
     elif "ooo" in q or "office" in q:
         intent = "COUNT_SKIPPED"
         filters["reason"] = "ooo"
-    elif "skipped" in q or "ignored" in q:
+    elif "skipped" in q or "ignored" in q or "emails" in q or "mails" in q:
         intent = "LIST_SKIPPED"
-    elif "low confidence" in q:
+    elif "low confidence" in q or "confidence" in q:
         intent = "LIST_LOW_CONFIDENCE"
     elif "triage" in q:
         intent = "LIST_TRIAGE"
-    elif "high priority" in q:
+    elif "high priority" in q or "urgent" in q or "attention" in q:
         intent = "LIST_HIGH_PRIORITY"
     elif "how many" in q or "count" in q:
         intent = "COUNT_TASKS"
-        
+
+    # Orbit Finance keyword search term
+    if "orbit" in q or "finance" in q:
+        filters["query_term"] = "Orbit Finance"
+
     return {"intent": intent, "filters": filters, "limit": 20}
 
-async def interpret_query_with_gemini(query: str) -> Dict[str, Any]:
+async def interpret_query_with_gemini(query: str, history: List[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Uses Gemini 2.5 Flash structured output to translate query into structured intent."""
     api_key = settings.GEMINI_API_KEY
     if not api_key or len(api_key) < 10 or api_key.startswith("AQ."):
         return fallback_intent_parse(query)
 
-    prompt = GEMINI_INTERPRET_PROMPT.format(query=query)
+    history_context = ""
+    if history:
+        for msg in history:
+            sender_lbl = "User" if msg.get("sender") == "user" else "AI"
+            history_context += f"{sender_lbl}: {msg.get('text')}\n"
+    if not history_context:
+        history_context = "No previous context."
+
+    prompt = GEMINI_INTERPRET_PROMPT.format(query=query, history_context=history_context)
     headers = {"Content-Type": "application/json"}
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
@@ -150,6 +177,8 @@ async def execute_intent_query(db: Session, intent_plan: Dict[str, Any], candida
     assignee_id = filters.get("assignee_id")
     priority = filters.get("priority")
     reason = filters.get("reason")
+    query_term = filters.get("query_term")
+    thread_id = filters.get("thread_id")
 
     if intent == "OUT_OF_SCOPE":
         return {"out_of_scope": True}
@@ -201,6 +230,13 @@ async def execute_intent_query(db: Session, intent_plan: Dict[str, Any], candida
             if intent == "LIST_LOW_CONFIDENCE": q["confidence"] = {"$lt": 0.70}
             if intent == "LIST_HIGH_PRIORITY": q["priority"] = "high"
             
+            if query_term:
+                q["$or"] = [
+                    {"title": {"$regex": query_term, "$options": "i"}},
+                    {"description": {"$regex": query_term, "$options": "i"}},
+                    {"company_name": {"$regex": query_term, "$options": "i"}}
+                ]
+            
             tasks = await mongo_db.tasks.find(q, {"_id": 0}).limit(limit).to_list(length=limit)
             return {"tasks": tasks, "count": len(tasks)}
         elif intent == "LIST_SKIPPED":
@@ -211,6 +247,15 @@ async def execute_intent_query(db: Session, intent_plan: Dict[str, Any], candida
                 q["status"] = {"$in": ["skipped_spam", "skipped_ooo", "skipped_newsletter", "skipped"]}
             logs = await mongo_db.processed_emails.find(q, {"_id": 0}).limit(limit).to_list(length=limit)
             return {"skipped_emails": logs, "count": len(logs)}
+        elif intent == "THREAD_HISTORY":
+            t_id = thread_id or query_term
+            if t_id:
+                logs = await mongo_db.processed_emails.find(
+                    {"candidate_id": norm_cand_id, "thread_id": t_id},
+                    {"_id": 0}
+                ).sort("processed_at", 1).to_list(length=100)
+                return {"thread_id": t_id, "emails": logs, "count": len(logs)}
+            return {"thread_id": None, "emails": [], "count": 0}
         
         return {}
 
@@ -265,6 +310,13 @@ async def execute_intent_query(db: Session, intent_plan: Dict[str, Any], candida
             if intent == "LIST_LOW_CONFIDENCE": query = query.filter(TaskModel.confidence < 0.70)
             if intent == "LIST_HIGH_PRIORITY": query = query.filter(TaskModel.priority == "high")
             
+            if query_term:
+                query = query.filter(
+                    (TaskModel.title.contains(query_term)) | 
+                    (TaskModel.description.contains(query_term)) |
+                    (TaskModel.company_name.contains(query_term))
+                )
+            
             tasks = query.limit(limit).all()
             return {
                 "tasks": [
@@ -312,6 +364,29 @@ async def execute_intent_query(db: Session, intent_plan: Dict[str, Any], candida
                 ],
                 "count": len(logs)
             }
+        elif intent == "THREAD_HISTORY":
+            t_id = thread_id or query_term
+            if t_id:
+                logs = db.query(ProcessedEmailModel).filter(
+                    ProcessedEmailModel.candidate_id == norm_cand_id,
+                    ProcessedEmailModel.thread_id == t_id
+                ).order_by(ProcessedEmailModel.processed_at.asc()).all()
+                return {
+                    "thread_id": t_id,
+                    "emails": [
+                        {
+                            "email_id": log.email_id,
+                            "from_email": log.from_email,
+                            "subject": log.subject,
+                            "status": log.status,
+                            "reasoning": log.reasoning,
+                            "processed_at": log.processed_at
+                        }
+                        for log in logs
+                    ],
+                    "count": len(logs)
+                }
+            return {"thread_id": None, "emails": [], "count": 0}
             
         return {}
 
@@ -358,12 +433,17 @@ async def generate_grounded_answer(query: str, db_result: Dict[str, Any], intent
 
     return fallback
 
-async def execute_grounded_chat_query(db: Session, query: str, candidate_id: str = "") -> Dict[str, Any]:
+async def execute_grounded_chat_query(
+    db: Session, 
+    query: str, 
+    candidate_id: str = "", 
+    history: List[Dict[str, Any]] = None
+) -> Dict[str, Any]:
     """Executes full Candidate-Scoped Plan -> Execute -> Phrase grounded chat pipeline."""
     norm_cand_id = normalize_email(candidate_id or settings.CANDIDATE_ID)
     
-    # 1. Interpret user query intent with Gemini model
-    intent_plan = await interpret_query_with_gemini(query)
+    # 1. Interpret user query intent with Gemini model (including conversation history)
+    intent_plan = await interpret_query_with_gemini(query, history=history)
     
     # 2. Execute plan deterministically against database store
     db_result = await execute_intent_query(db, intent_plan, norm_cand_id)
@@ -371,7 +451,12 @@ async def execute_grounded_chat_query(db: Session, query: str, candidate_id: str
     if db_result.get("out_of_scope"):
         return {
             "answer": "I can analyze and query the processed inbox data, but I can't send emails or perform external actions from this chat.",
-            "supporting_data": {"out_of_scope": True, "candidate_id": norm_cand_id}
+            "query_intent": "out_of_scope",
+            "supporting_data": {"out_of_scope": True, "candidate_id": norm_cand_id},
+            "metadata": {
+                "candidate_id": norm_cand_id,
+                "source": "validation"
+            }
         }
         
     # 3. Conversational phrasing grounded strictly in query result
@@ -379,5 +464,10 @@ async def execute_grounded_chat_query(db: Session, query: str, candidate_id: str
     
     return {
         "answer": answer,
-        "supporting_data": db_result
+        "query_intent": intent_plan.get("intent", "LIST_TASKS"),
+        "supporting_data": db_result,
+        "metadata": {
+            "candidate_id": norm_cand_id,
+            "source": "database"
+        }
     }

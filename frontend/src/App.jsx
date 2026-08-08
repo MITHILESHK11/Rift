@@ -165,13 +165,14 @@ export default function App() {
     }
   };
 
-  const handleSendChatQuery = async (query) => {
+  const handleSendChatQuery = async (query, history = []) => {
     const res = await fetch(`${API_BASE}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         candidate_id: candidateId,
-        query: query
+        query: query,
+        history: history
       })
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -268,13 +269,13 @@ export default function App() {
             )}
           </div>
         </div>
-
-        {/* Right Pane: Copilot Analysis */}
-        <ChatPanel
-          candidateId={candidateId}
-          onSendQuery={handleSendChatQuery}
-        />
       </main>
+
+      {/* Floating Intelligent Chat Assistant */}
+      <ChatPanel
+        candidateId={candidateId}
+        onSendQuery={handleSendChatQuery}
+      />
     </div>
   );
 }
