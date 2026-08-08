@@ -106,7 +106,7 @@ def fallback_intent_parse(query: str) -> Dict[str, Any]:
         
     return {"intent": intent, "filters": filters, "limit": 20}
 
-def interpret_query_with_gemini(query: str) -> Dict[str, Any]:
+async def interpret_query_with_gemini(query: str) -> Dict[str, Any]:
     """Uses Gemini 2.5 Flash structured output to translate query into structured intent."""
     api_key = settings.GEMINI_API_KEY
     if not api_key or len(api_key) < 10 or api_key.startswith("AQ."):
@@ -124,8 +124,8 @@ def interpret_query_with_gemini(query: str) -> Dict[str, Any]:
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{settings.GEMINI_MODEL}:generateContent?key={api_key}"
     
     try:
-        with httpx.Client(timeout=10.0) as client:
-            resp = client.post(url, json=payload, headers=headers)
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(url, json=payload, headers=headers)
             if resp.status_code == 200:
                 res_data = resp.json()
                 text_out = res_data["candidates"][0]["content"]["parts"][0]["text"].strip()
@@ -135,7 +135,7 @@ def interpret_query_with_gemini(query: str) -> Dict[str, Any]:
     
     return fallback_intent_parse(query)
 
-def execute_intent_query(db: Session, intent_plan: Dict[str, Any], candidate_id: str) -> Dict[str, Any]:
+async def execute_intent_query(db: Session, intent_plan: Dict[str, Any], candidate_id: str) -> Dict[str, Any]:
     """Deterministically queries the application store (Motor/SQLAlchemy) based on plan."""
     norm_cand_id = normalize_email(candidate_id)
     intent = intent_plan.get("intent", "LIST_TASKS")
@@ -155,79 +155,64 @@ def execute_intent_query(db: Session, intent_plan: Dict[str, Any], candidate_id:
         return {"out_of_scope": True}
 
     if mongo_active and mongo_db is not None:
-        import asyncio
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+        if intent == "GENERAL_STATS":
+            tasks_created = await mongo_db.tasks.count_documents({"candidate_id": norm_cand_id})
+            total_processed = await mongo_db.processed_emails.count_documents({"candidate_id": norm_cand_id})
+            skipped_spam = await mongo_db.processed_emails.count_documents({"candidate_id": norm_cand_id, "status": "skipped_spam"})
+            skipped_ooo = await mongo_db.processed_emails.count_documents({"candidate_id": norm_cand_id, "status": "skipped_ooo"})
+            skipped_newsletter = await mongo_db.processed_emails.count_documents({"candidate_id": norm_cand_id, "status": "skipped_newsletter"})
+            total_skipped = skipped_spam + skipped_ooo + skipped_newsletter
+            spurious_count = await mongo_db.tasks.count_documents({"candidate_id": norm_cand_id, "$or": [{"confidence": {"$lt": 0.70}}, {"category": "triage"}]})
+            return {
+                "total_tasks": tasks_created,
+                "total_processed": total_processed,
+                "total_skipped": total_skipped,
+                "spurious_count": spurious_count,
+                "spurious_rate": round(spurious_count / tasks_created, 4) if tasks_created > 0 else 0.0
+            }
+        elif intent == "SUM_DEAL_VALUE":
+            match = {"candidate_id": norm_cand_id, "deal_value_inr": {"$ne": None}}
+            if category: match["category"] = category
+            pipeline = [{"$match": match}, {"$group": {"_id": None, "total": {"$sum": "$deal_value_inr"}}}]
+            res = await mongo_db.tasks.aggregate(pipeline).to_list(length=1)
+            total = res[0]["total"] if res else 0
+            return {"total_deal_value_inr": total}
+        elif intent == "COUNT_TASKS":
+            q = {"candidate_id": norm_cand_id}
+            if category: q["category"] = category
+            if assignee_id: q["assignee_id"] = assignee_id
+            if priority: q["priority"] = priority
+            count = await mongo_db.tasks.count_documents(q)
+            return {"count": count}
+        elif intent == "COUNT_SKIPPED":
+            q = {"candidate_id": norm_cand_id}
+            if reason:
+                q["status"] = f"skipped_{reason}"
+            else:
+                q["status"] = {"$in": ["skipped_spam", "skipped_ooo", "skipped_newsletter", "skipped"]}
+            count = await mongo_db.processed_emails.count_documents(q)
+            return {"count": count}
+        elif intent in ["LIST_TASKS", "LIST_TRIAGE", "LIST_LOW_CONFIDENCE", "LIST_HIGH_PRIORITY"]:
+            q = {"candidate_id": norm_cand_id}
+            if category: q["category"] = category
+            if assignee_id: q["assignee_id"] = assignee_id
+            if priority: q["priority"] = priority
+            if intent == "LIST_TRIAGE": q["category"] = "triage"
+            if intent == "LIST_LOW_CONFIDENCE": q["confidence"] = {"$lt": 0.70}
+            if intent == "LIST_HIGH_PRIORITY": q["priority"] = "high"
             
-        async def mongo_executor():
-            if intent == "GENERAL_STATS":
-                tasks_created = await mongo_db.tasks.count_documents({"candidate_id": norm_cand_id})
-                total_processed = await mongo_db.processed_emails.count_documents({"candidate_id": norm_cand_id})
-                skipped_spam = await mongo_db.processed_emails.count_documents({"candidate_id": norm_cand_id, "status": "skipped_spam"})
-                skipped_ooo = await mongo_db.processed_emails.count_documents({"candidate_id": norm_cand_id, "status": "skipped_ooo"})
-                skipped_newsletter = await mongo_db.processed_emails.count_documents({"candidate_id": norm_cand_id, "status": "skipped_newsletter"})
-                total_skipped = skipped_spam + skipped_ooo + skipped_newsletter
-                spurious_count = await mongo_db.tasks.count_documents({"candidate_id": norm_cand_id, "$or": [{"confidence": {"$lt": 0.70}}, {"category": "triage"}]})
-                return {
-                    "total_tasks": tasks_created,
-                    "total_processed": total_processed,
-                    "total_skipped": total_skipped,
-                    "spurious_count": spurious_count,
-                    "spurious_rate": round(spurious_count / tasks_created, 4) if tasks_created > 0 else 0.0
-                }
-            elif intent == "SUM_DEAL_VALUE":
-                match = {"candidate_id": norm_cand_id, "deal_value_inr": {"$ne": None}}
-                if category: match["category"] = category
-                pipeline = [{"$match": match}, {"$group": {"_id": None, "total": {"$sum": "$deal_value_inr"}}}]
-                res = await mongo_db.tasks.aggregate(pipeline).to_list(length=1)
-                total = res[0]["total"] if res else 0
-                return {"total_deal_value_inr": total}
-            elif intent == "COUNT_TASKS":
-                q = {"candidate_id": norm_cand_id}
-                if category: q["category"] = category
-                if assignee_id: q["assignee_id"] = assignee_id
-                if priority: q["priority"] = priority
-                count = await mongo_db.tasks.count_documents(q)
-                return {"count": count}
-            elif intent == "COUNT_SKIPPED":
-                q = {"candidate_id": norm_cand_id}
-                if reason:
-                    q["status"] = f"skipped_{reason}"
-                else:
-                    q["status"] = {"$in": ["skipped_spam", "skipped_ooo", "skipped_newsletter", "skipped"]}
-                count = await mongo_db.processed_emails.count_documents(q)
-                return {"count": count}
-            elif intent in ["LIST_TASKS", "LIST_TRIAGE", "LIST_LOW_CONFIDENCE", "LIST_HIGH_PRIORITY"]:
-                q = {"candidate_id": norm_cand_id}
-                if category: q["category"] = category
-                if assignee_id: q["assignee_id"] = assignee_id
-                if priority: q["priority"] = priority
-                if intent == "LIST_TRIAGE": q["category"] = "triage"
-                if intent == "LIST_LOW_CONFIDENCE": q["confidence"] = {"$lt": 0.70}
-                if intent == "LIST_HIGH_PRIORITY": q["priority"] = "high"
-                
-                tasks = await mongo_db.tasks.find(q, {"_id": 0}).limit(limit).to_list(length=limit)
-                return {"tasks": tasks, "count": len(tasks)}
-            elif intent == "LIST_SKIPPED":
-                q = {"candidate_id": norm_cand_id}
-                if reason:
-                    q["status"] = f"skipped_{reason}"
-                else:
-                    q["status"] = {"$in": ["skipped_spam", "skipped_ooo", "skipped_newsletter", "skipped"]}
-                logs = await mongo_db.processed_emails.find(q, {"_id": 0}).limit(limit).to_list(length=limit)
-                return {"skipped_emails": logs, "count": len(logs)}
-            
-            return {}
-
-        if loop.is_running():
-            import nest_asyncio
-            nest_asyncio.apply()
-            return loop.run_until_complete(mongo_executor())
-        else:
-            return loop.run_until_complete(mongo_executor())
+            tasks = await mongo_db.tasks.find(q, {"_id": 0}).limit(limit).to_list(length=limit)
+            return {"tasks": tasks, "count": len(tasks)}
+        elif intent == "LIST_SKIPPED":
+            q = {"candidate_id": norm_cand_id}
+            if reason:
+                q["status"] = f"skipped_{reason}"
+            else:
+                q["status"] = {"$in": ["skipped_spam", "skipped_ooo", "skipped_newsletter", "skipped"]}
+            logs = await mongo_db.processed_emails.find(q, {"_id": 0}).limit(limit).to_list(length=limit)
+            return {"skipped_emails": logs, "count": len(logs)}
+        
+        return {}
 
     else:
         # SQL fallback path
@@ -330,7 +315,7 @@ def execute_intent_query(db: Session, intent_plan: Dict[str, Any], candidate_id:
             
         return {}
 
-def generate_grounded_answer(query: str, db_result: Dict[str, Any], intent_plan: Dict[str, Any], candidate_id: str) -> str:
+async def generate_grounded_answer(query: str, db_result: Dict[str, Any], intent_plan: Dict[str, Any], candidate_id: str) -> str:
     """Generates user-facing conversational response strictly scoped to database ground-truth result."""
     intent = intent_plan.get("intent")
     count = db_result.get("count")
@@ -363,8 +348,8 @@ def generate_grounded_answer(query: str, db_result: Dict[str, Any], intent_plan:
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{settings.GEMINI_MODEL}:generateContent?key={api_key}"
 
     try:
-        with httpx.Client(timeout=10.0) as client:
-            resp = client.post(url, json=payload, headers=headers)
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(url, json=payload, headers=headers)
             if resp.status_code == 200:
                 res_data = resp.json()
                 return res_data["candidates"][0]["content"]["parts"][0]["text"].strip()
@@ -373,15 +358,15 @@ def generate_grounded_answer(query: str, db_result: Dict[str, Any], intent_plan:
 
     return fallback
 
-def execute_grounded_chat_query(db: Session, query: str, candidate_id: str = "") -> Dict[str, Any]:
+async def execute_grounded_chat_query(db: Session, query: str, candidate_id: str = "") -> Dict[str, Any]:
     """Executes full Candidate-Scoped Plan -> Execute -> Phrase grounded chat pipeline."""
     norm_cand_id = normalize_email(candidate_id or settings.CANDIDATE_ID)
     
     # 1. Interpret user query intent with Gemini model
-    intent_plan = interpret_query_with_gemini(query)
+    intent_plan = await interpret_query_with_gemini(query)
     
     # 2. Execute plan deterministically against database store
-    db_result = execute_intent_query(db, intent_plan, norm_cand_id)
+    db_result = await execute_intent_query(db, intent_plan, norm_cand_id)
     
     if db_result.get("out_of_scope"):
         return {
@@ -390,7 +375,7 @@ def execute_grounded_chat_query(db: Session, query: str, candidate_id: str = "")
         }
         
     # 3. Conversational phrasing grounded strictly in query result
-    answer = generate_grounded_answer(query, db_result, intent_plan, norm_cand_id)
+    answer = await generate_grounded_answer(query, db_result, intent_plan, norm_cand_id)
     
     return {
         "answer": answer,

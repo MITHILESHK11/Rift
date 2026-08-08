@@ -1,7 +1,18 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 export default function Sidebar({ activeTab, setActiveTab, candidateId, setCandidateId, onClearDatabase }) {
   const [isEditingCand, setIsEditingCand] = useState(false);
+  const [tempCandId, setTempCandId] = useState(candidateId);
+
+  useEffect(() => {
+    setTempCandId(candidateId);
+  }, [candidateId]);
+
+  const handleCommit = () => {
+    setTempCandId(tempCandId.trim());
+    setCandidateId(tempCandId.trim());
+    setIsEditingCand(false);
+  };
 
   return (
     <nav className="fixed left-0 top-0 h-screen w-64 flex flex-col py-6 px-4 bg-surface-container-low dark:bg-inverse-surface border-r border-outline-variant dark:border-on-surface-variant z-10">
@@ -22,15 +33,18 @@ export default function Sidebar({ activeTab, setActiveTab, candidateId, setCandi
           <input
             type="email"
             className="w-32 bg-white border border-primary px-1 py-0.5 text-[11px] rounded text-on-surface outline-none"
-            value={candidateId}
-            onChange={(e) => setCandidateId(e.target.value)}
-            onBlur={() => setIsEditingCand(false)}
-            onKeyDown={(e) => e.key === 'Enter' && setIsEditingCand(false)}
+            value={tempCandId}
+            onChange={(e) => setTempCandId(e.target.value)}
+            onBlur={handleCommit}
+            onKeyDown={(e) => e.key === 'Enter' && handleCommit()}
             autoFocus
           />
         ) : (
           <button
-            onClick={() => setIsEditingCand(true)}
+            onClick={() => {
+              setTempCandId(candidateId);
+              setIsEditingCand(true);
+            }}
             className="font-mono text-primary font-semibold truncate max-w-[120px] hover:underline"
             title="Click to edit candidate_id email"
           >
