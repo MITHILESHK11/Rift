@@ -8,7 +8,7 @@ It automatically ingests raw B2B email payloads, extracts structured deal entiti
 
 ## System Architecture
 
-![Sales Inbox Architecture Flowchart](./architecture_flowchart.svg)
+![Sales Inbox Architecture Flowchart](./architecture_flowchart.png)
 
 ---
 
