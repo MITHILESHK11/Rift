@@ -147,15 +147,13 @@ export default function Sidebar({ activeTab, setActiveTab, candidateId, setCandi
             LinkedIn
           </a>
           <span className="text-outline-variant/60">·</span>
-          <button
-            onClick={() => {
-              window.open("https://github.com/MITHILESHK11", "_blank");
-            }}
+          <a
+            href="mailto:m.kolhapurkar3529@gmail.com"
             className="hover:text-primary transition-colors text-left"
-            title="Contact Developer via GitHub"
+            title="Contact Developer via Email"
           >
             Contact
-          </button>
+          </a>
         </div>
       </div>
     </nav>
