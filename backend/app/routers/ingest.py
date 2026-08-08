@@ -43,6 +43,7 @@ class IngestPayloadSchema(BaseModel):
     emails: List[EmailInputSchema]
 
 @router.post("/ingest")
+@router.post("/api/ingest")
 async def ingest_emails(payload: IngestPayloadSchema, db: Session = Depends(get_db)):
     """Section 7.1: Fast async batch email ingest processor supporting Motor MongoDB & SQL."""
     norm_cand_id = normalize_email(payload.candidate_id)
@@ -348,6 +349,7 @@ async def ingest_emails(payload: IngestPayloadSchema, db: Session = Depends(get_
     }
 
 @router.post("/api/ingest-single")
+@router.post("/ingest-single")
 async def ingest_single_email(payload: SingleEmailComposeSchema, db: Session = Depends(get_db)):
     """Real Email Reader endpoint: Reads a single real email composed or pasted by an evaluator."""
     cand_id = normalize_email(payload.candidate_id or settings.CANDIDATE_ID)
