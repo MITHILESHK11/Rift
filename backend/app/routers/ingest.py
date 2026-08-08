@@ -246,6 +246,7 @@ async def ingest_emails(
                         
                         proc_log = ProcessedEmailModel(
                             email_id=email_id,
+                            candidate_id=norm_cand_id,
                             thread_id=thread_id,
                             message_index=email_data.get("message_index", 0),
                             from_name=email_data.get("from_name"),
@@ -273,6 +274,7 @@ async def ingest_emails(
                 skip_reason = extraction.get("skip_reason", "skipped_spam")
                 proc_log = ProcessedEmailModel(
                     email_id=email_id,
+                    candidate_id=norm_cand_id,
                     thread_id=thread_id,
                     message_index=email_data.get("message_index", 0),
                     from_name=email_data.get("from_name"),
@@ -330,6 +332,7 @@ async def ingest_emails(
 
             proc_log = ProcessedEmailModel(
                 email_id=email_id,
+                candidate_id=norm_cand_id,
                 thread_id=thread_id,
                 message_index=email_data.get("message_index", 0),
                 from_name=email_data.get("from_name"),

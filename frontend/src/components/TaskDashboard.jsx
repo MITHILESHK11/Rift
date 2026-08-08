@@ -107,7 +107,7 @@ export default function TaskDashboard({ tasks, skippedEmails, stats, onRefresh }
         {filteredTasks.length === 0 ? (
           <div className="p-8 text-center text-on-surface-variant text-body-md">
             {tasks.length === 0
-              ? 'No tasks created yet. Ingest an email payload above to route tasks.'
+              ? 'No tasks found for this candidate.'
               : 'No tasks match your active filter parameters.'}
           </div>
         ) : (

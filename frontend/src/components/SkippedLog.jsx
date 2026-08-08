@@ -16,7 +16,7 @@ export default function SkippedLog({ skippedEmails }) {
       <div className="overflow-y-auto flex-1">
         {skippedEmails.length === 0 ? (
           <div className="p-8 text-center text-on-surface-variant text-body-md">
-            No noise emails skipped yet.
+            No skipped emails found.
           </div>
         ) : (
           <table className="w-full text-left border-collapse">

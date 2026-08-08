@@ -144,14 +144,30 @@ async def get_system_stats(
             task_query = task_query.filter(TaskModel.candidate_id == norm_cand_id)
 
         tasks_created = task_query.count()
-        total_processed = db.query(func.count(ProcessedEmailModel.email_id)).scalar() or 0
-        
-        skipped_spam = db.query(func.count(ProcessedEmailModel.email_id)).filter(ProcessedEmailModel.status == "skipped_spam").scalar() or 0
-        skipped_ooo = db.query(func.count(ProcessedEmailModel.email_id)).filter(ProcessedEmailModel.status == "skipped_ooo").scalar() or 0
-        skipped_newsletter = db.query(func.count(ProcessedEmailModel.email_id)).filter(ProcessedEmailModel.status == "skipped_newsletter").scalar() or 0
+        total_processed_q = db.query(func.count(ProcessedEmailModel.email_id))
+        spam_q = db.query(func.count(ProcessedEmailModel.email_id)).filter(ProcessedEmailModel.status == "skipped_spam")
+        ooo_q = db.query(func.count(ProcessedEmailModel.email_id)).filter(ProcessedEmailModel.status == "skipped_ooo")
+        newsletter_q = db.query(func.count(ProcessedEmailModel.email_id)).filter(ProcessedEmailModel.status == "skipped_newsletter")
+
+        if norm_cand_id:
+            total_processed_q = total_processed_q.filter(ProcessedEmailModel.candidate_id == norm_cand_id)
+            spam_q = spam_q.filter(ProcessedEmailModel.candidate_id == norm_cand_id)
+            ooo_q = ooo_q.filter(ProcessedEmailModel.candidate_id == norm_cand_id)
+            newsletter_q = newsletter_q.filter(ProcessedEmailModel.candidate_id == norm_cand_id)
+
+        total_processed = total_processed_q.scalar() or 0
+        skipped_spam = spam_q.scalar() or 0
+        skipped_ooo = ooo_q.scalar() or 0
+        skipped_newsletter = newsletter_q.scalar() or 0
         total_skipped = skipped_spam + skipped_ooo + skipped_newsletter
 
-        tasks_updated = db.query(func.count(ThreadMapModel.thread_id)).filter(ThreadMapModel.update_count > 1).scalar() or 0
+        # SQLite Thread Update Count Scoped (only task maps that were created for tasks of candidate_id)
+        tasks_updated_q = db.query(func.count(ThreadMapModel.thread_id)).join(
+            TaskModel, TaskModel.task_id == ThreadMapModel.task_id
+        ).filter(ThreadMapModel.update_count > 1)
+        if norm_cand_id:
+            tasks_updated_q = tasks_updated_q.filter(TaskModel.candidate_id == norm_cand_id)
+        tasks_updated = tasks_updated_q.scalar() or 0
 
         cat_query = db.query(TaskModel.category, func.count(TaskModel.task_id))
         if norm_cand_id:
@@ -187,3 +203,41 @@ async def get_system_stats(
             "category_distribution": dict(category_counts),
             "assignee_distribution": dict(assignee_counts)
         }
+
+@router.get("/api/skipped")
+@router.get("/skipped")
+async def list_skipped_emails(
+    candidate_id: str = Query(..., description="Mandatory candidate_id email"),
+    db: Session = Depends(get_db)
+):
+    """Returns candidate-scoped processed emails that were skipped (Rule 4 spam/ooo/newsletter)."""
+    norm_cand_id = normalize_email(candidate_id)
+    mongo_db = get_motor_db() if is_mongo_active() else None
+
+    skipped_statuses = ["skipped_spam", "skipped_ooo", "skipped_newsletter", "skipped"]
+
+    if mongo_db is not None:
+        logs = await mongo_db.processed_emails.find(
+            {"candidate_id": norm_cand_id, "status": {"$in": skipped_statuses}},
+            {"_id": 0}
+        ).sort("processed_at", -1).to_list(length=1000)
+        return logs
+    else:
+        logs = db.query(ProcessedEmailModel).filter(
+            ProcessedEmailModel.candidate_id == norm_cand_id,
+            ProcessedEmailModel.status.in_(skipped_statuses)
+        ).order_by(ProcessedEmailModel.processed_at.desc()).all()
+        
+        return [
+            {
+                "email_id": log.email_id,
+                "thread_id": log.thread_id,
+                "from_email": log.from_email,
+                "subject": log.subject,
+                "status": log.status,
+                "skip_reason": log.skip_reason or log.status,
+                "reasoning": log.reasoning,
+                "processed_at": log.processed_at
+            }
+            for log in logs
+        ]

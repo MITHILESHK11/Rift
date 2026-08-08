@@ -29,6 +29,17 @@ export default function ChatPanel({ candidateId, onSendQuery }) {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  useEffect(() => {
+    setMessages([
+      {
+        sender: 'agent',
+        text: 'Analysis context set to recent ingestion payload. Ask follow-up questions about processed emails, task counts, or team queues.',
+        supportingData: null,
+        time: 'Just now'
+      }
+    ]);
+  }, [candidateId]);
+
   const handleSend = async (queryToSend) => {
     const query = queryToSend || inputQuery;
     if (!query.trim() || isLoading) return;

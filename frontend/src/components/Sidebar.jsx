@@ -12,7 +12,6 @@ export default function Sidebar({ activeTab, setActiveTab, candidateId, setCandi
         </div>
         <div>
           <h1 className="text-headline-sm font-headline-sm font-bold text-on-surface dark:text-inverse-on-surface leading-tight">Rift</h1>
-          <p className="text-body-sm font-body-sm text-on-surface-variant leading-tight">Enterprise Tier</p>
         </div>
       </div>
 

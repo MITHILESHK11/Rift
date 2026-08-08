@@ -25,6 +25,7 @@ class ProcessedEmailModel(Base):
     __tablename__ = "processed_emails"
 
     email_id = Column(String, primary_key=True, index=True)
+    candidate_id = Column(String, index=True, nullable=True)
     thread_id = Column(String, index=True, nullable=False)
     message_index = Column(Integer, default=0)
     from_name = Column(String, nullable=True)

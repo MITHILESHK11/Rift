@@ -40,16 +40,26 @@ export default function App() {
       const tasksRes = await fetch(`${API_BASE}/api/tasks?candidate_id=${encodeURIComponent(candToFetch)}`);
       if (tasksRes.ok) {
         const tasksData = await tasksRes.json();
-        setTasks(tasksData.tasks || []);
-        setSkippedEmails(tasksData.skipped_emails || []);
+        const finalTasksList = Array.isArray(tasksData) ? tasksData : (tasksData.tasks || []);
+        setTasks(finalTasksList);
+      }
+
+      const skippedRes = await fetch(`${API_BASE}/api/skipped?candidate_id=${encodeURIComponent(candToFetch)}`);
+      if (skippedRes.ok) {
+        const skippedData = await skippedRes.json();
+        setSkippedEmails(skippedData || []);
       }
     } catch (err) {
-      console.error("Error fetching tasks/stats:", err);
+      console.error("Error fetching tasks/stats/skipped:", err);
     }
   };
 
   useEffect(() => {
-    fetchTasksAndStats();
+    setStatusBanner(null);
+    setTasks([]);
+    setSkippedEmails([]);
+    setStats({});
+    fetchTasksAndStats(candidateId);
   }, [candidateId]);
 
   const handlePastedData = (emails) => {
@@ -244,6 +254,7 @@ export default function App() {
             {activeTab === 'single' && (
               <div className="flex-1 overflow-y-auto">
                 <SingleEmailReader
+                  key={candidateId}
                   onIngestSingle={handleIngestSingle}
                   isIngesting={isIngesting}
                 />
