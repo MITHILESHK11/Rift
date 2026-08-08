@@ -47,9 +47,10 @@ def run_verification(base_url: str):
     sample_emails = r_sample.json().get("emails", [])
     assert len(sample_emails) > 0
 
-    # 5. POST /api/clear-database (reset state for clean test)
-    r_clear = client.post("/api/clear-database")
-    print(f"[8] POST /api/clear-database -> Status: {r_clear.status_code}")
+    # 5. POST /api/clear-database (reset state for clean test — scoped to test candidate only)
+    r_clear = client.post(f"/api/clear-database?candidate_id={test_cand}")
+    print(f"[8] POST /api/clear-database -> Status: {r_clear.status_code}, Res: {r_clear.json()}")
+    # Accept success or "disabled" (production) — either is OK
     assert r_clear.status_code == 200
 
     # 6. POST /api/ingest (Object Payload)
