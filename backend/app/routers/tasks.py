@@ -41,6 +41,7 @@ class TaskPatchSchema(BaseModel):
     confidence: Optional[float] = None
 
 @router.post("/tasks", status_code=status.HTTP_201_CREATED)
+@router.post("/api/tasks", status_code=status.HTTP_201_CREATED)
 async def create_task(payload: TaskCreateSchema, db: Session = Depends(get_db)):
     """Section 5.1: Create a task with strict enum error validation and candidate-scoped deduplication."""
     if payload.assignee_id not in ALLOWED_ASSIGNEES:
@@ -190,6 +191,7 @@ async def create_task(payload: TaskCreateSchema, db: Session = Depends(get_db)):
         }
 
 @router.get("/tasks")
+@router.get("/api/tasks")
 async def list_tasks(
     candidate_id: str = Query(..., description="Mandatory candidate_id email"),
     thread_id: Optional[str] = None,
