@@ -61,9 +61,12 @@ async def ingest_emails(
     norm_cand_id = normalize_email(cand)
     mongo_db = get_motor_db() if is_mongo_active() else None
     
+    run_id = f"run_{uuid.uuid4().hex[:8]}"
     tasks_created = 0
     tasks_updated = 0
     skipped = 0
+    triage_count = 0
+    spurious_count = 0
     errors = []
 
     # Step 1: Pre-process emails list and assign email_id / thread_id
@@ -109,6 +112,11 @@ async def ingest_emails(
                         target_task_id = task_doc.get("task_id")
 
                 if target_task_id:
+                    # Compare task state for Thread Change Summary
+                    orig_task = await mongo_db.tasks.find_one({"candidate_id": norm_cand_id, "task_id": target_task_id})
+                    orig_priority = orig_task.get("priority") if orig_task else "medium"
+                    orig_deal = orig_task.get("deal_value_inr") if orig_task else None
+
                     update_fields = {"updated_at": now_iso}
                     if extraction.get("priority"):
                         update_fields["priority"] = extraction["priority"]
@@ -116,6 +124,15 @@ async def ingest_emails(
                         update_fields["due_date"] = extraction["due_date"]
                     if extraction.get("deal_value_inr") is not None:
                         update_fields["deal_value_inr"] = extraction["deal_value_inr"]
+
+                    # Extract changes
+                    thread_signals = []
+                    if extraction.get("priority") and extraction["priority"] != orig_priority:
+                        thread_signals.append(f"Priority escalated: {orig_priority} -> {extraction['priority']}")
+                    if extraction.get("deal_value_inr") is not None and extraction["deal_value_inr"] != orig_deal:
+                        thread_signals.append(f"Deal value updated: {orig_deal} -> {extraction['deal_value_inr']}")
+                    if not thread_signals:
+                        thread_signals = ["Thread reply update applied to task"]
 
                     await mongo_db.tasks.update_one({"candidate_id": norm_cand_id, "task_id": target_task_id}, {"$set": update_fields})
                     if existing_thread:
@@ -132,9 +149,18 @@ async def ingest_emails(
                         "received_at": email_data.get("received_at"),
                         "is_reply": True,
                         "status": "updated_task",
+                        "category": orig_task.get("category") if orig_task else "triage",
+                        "confidence": extraction.get("confidence", 0.90),
                         "task_id": target_task_id,
                         "reasoning": "Thread reply update applied to existing task.",
-                        "processed_at": now_iso
+                        "processed_at": now_iso,
+                        "direction": extraction.get("direction", "inbound"),
+                        "intent": extraction.get("intent", "ambiguous"),
+                        "signals": thread_signals,
+                        "rules_triggered": extraction.get("rules_triggered", []),
+                        "run_id": run_id,
+                        "needs_review": False,
+                        "review_status": "completed"
                     }
                     await mongo_db.processed_emails.insert_one(proc_doc)
                     tasks_updated += 1
@@ -155,7 +181,14 @@ async def ingest_emails(
                     "status": skip_reason,
                     "skip_reason": skip_reason,
                     "reasoning": extraction.get("reasoning"),
-                    "processed_at": now_iso
+                    "processed_at": now_iso,
+                    "direction": extraction.get("direction", "outbound_vendor"),
+                    "intent": extraction.get("intent", "spam"),
+                    "signals": extraction.get("signals", ["Spam filter triggered"]),
+                    "rules_triggered": extraction.get("rules_triggered", ["noise_filter"]),
+                    "run_id": run_id,
+                    "needs_review": False,
+                    "review_status": "completed"
                 }
                 await mongo_db.processed_emails.insert_one(proc_doc)
                 skipped += 1
@@ -163,6 +196,14 @@ async def ingest_emails(
 
             # Create Task in Mongo
             task_id = f"tsk_{uuid.uuid4().hex[:8]}"
+            conf_score = extraction.get("confidence", 0.90)
+            assignee = extraction.get("assignee_id", "u_triage")
+            cat = extraction.get("category", "triage")
+            
+            # Review workspace triggering
+            needs_rev = (conf_score < 0.65 or assignee == "u_triage" or cat == "triage")
+            rev_stat = "needs_review" if needs_rev else "completed"
+
             task_doc = {
                 "task_id": task_id,
                 "candidate_id": norm_cand_id,
@@ -170,15 +211,23 @@ async def ingest_emails(
                 "thread_id": thread_id,
                 "title": extraction.get("title") or f"{email_data.get('subject') or 'New Email Request'}",
                 "description": extraction.get("description") or (email_data.get("body") or "")[:200],
-                "assignee_id": extraction.get("assignee_id", "u_triage"),
-                "category": extraction.get("category", "triage"),
+                "assignee_id": assignee,
+                "category": cat,
                 "priority": extraction.get("priority", "medium"),
                 "due_date": extraction.get("due_date"),
                 "deal_value_inr": extraction.get("deal_value_inr"),
                 "company_name": extraction.get("company_name"),
-                "confidence": extraction.get("confidence", 0.90),
+                "confidence": conf_score,
                 "created_at": now_iso,
-                "updated_at": now_iso
+                "updated_at": now_iso,
+                "direction": extraction.get("direction", "inbound"),
+                "intent": extraction.get("intent", cat),
+                "signals": extraction.get("signals", ["Buying intent detected"]),
+                "rules_triggered": extraction.get("rules_triggered", []),
+                "run_id": run_id,
+                "needs_review": needs_rev,
+                "review_status": rev_stat,
+                "review_notes": None
             }
             await mongo_db.tasks.insert_one(task_doc)
 
@@ -206,10 +255,21 @@ async def ingest_emails(
                 "confidence": task_doc["confidence"],
                 "task_id": task_id,
                 "reasoning": extraction.get("reasoning"),
-                "processed_at": now_iso
+                "processed_at": now_iso,
+                "direction": task_doc["direction"],
+                "intent": task_doc["intent"],
+                "signals": task_doc["signals"],
+                "rules_triggered": task_doc["rules_triggered"],
+                "run_id": run_id,
+                "needs_review": needs_rev,
+                "review_status": rev_stat
             }
             await mongo_db.processed_emails.insert_one(proc_doc)
             tasks_created += 1
+            if cat == "triage" or assignee == "u_triage":
+                triage_count += 1
+            if needs_rev:
+                spurious_count += 1
 
         else:
             # SQL Fallback Processing Path
@@ -232,6 +292,9 @@ async def ingest_emails(
                 if target_task_id:
                     task = db.query(TaskModel).filter(TaskModel.task_id == target_task_id).first()
                     if task:
+                        orig_priority = task.priority
+                        orig_deal = task.deal_value_inr
+
                         if extraction.get("priority"):
                             task.priority = extraction["priority"]
                         if extraction.get("due_date"):
@@ -244,6 +307,15 @@ async def ingest_emails(
                             existing_thread_map.update_count += 1
                             existing_thread_map.last_updated_at = now_iso
                         
+                        thread_signals = []
+                        if extraction.get("priority") and extraction["priority"] != orig_priority:
+                            thread_signals.append(f"Priority escalated: {orig_priority} -> {extraction['priority']}")
+                        if extraction.get("deal_value_inr") is not None and extraction["deal_value_inr"] != orig_deal:
+                            thread_signals.append(f"Deal value updated: {orig_deal} -> {extraction['deal_value_inr']}")
+                        if not thread_signals:
+                            thread_signals = ["Thread reply update applied to task"]
+
+                        import json
                         proc_log = ProcessedEmailModel(
                             email_id=email_id,
                             candidate_id=norm_cand_id,
@@ -259,7 +331,14 @@ async def ingest_emails(
                             confidence=extraction.get("confidence", 0.9),
                             task_id=task.task_id,
                             reasoning="Thread reply update applied to existing task.",
-                            processed_at=now_iso
+                            processed_at=now_iso,
+                            direction=extraction.get("direction", "inbound"),
+                            intent=extraction.get("intent", "ambiguous"),
+                            signals=json.dumps(thread_signals),
+                            rules_triggered=json.dumps(extraction.get("rules_triggered", [])),
+                            run_id=run_id,
+                            needs_review=False,
+                            review_status="completed"
                         )
                         db.add(proc_log)
                         try:
@@ -272,6 +351,7 @@ async def ingest_emails(
 
             if not extraction.get("should_create_task", True):
                 skip_reason = extraction.get("skip_reason", "skipped_spam")
+                import json
                 proc_log = ProcessedEmailModel(
                     email_id=email_id,
                     candidate_id=norm_cand_id,
@@ -287,7 +367,14 @@ async def ingest_emails(
                     confidence=extraction.get("confidence", 0.99),
                     skip_reason=skip_reason,
                     reasoning=extraction.get("reasoning"),
-                    processed_at=now_iso
+                    processed_at=now_iso,
+                    direction=extraction.get("direction", "outbound_vendor"),
+                    intent=extraction.get("intent", "spam"),
+                    signals=json.dumps(extraction.get("signals", ["Spam filter triggered"])),
+                    rules_triggered=json.dumps(extraction.get("rules_triggered", ["noise_filter"])),
+                    run_id=run_id,
+                    needs_review=False,
+                    review_status="completed"
                 )
                 db.add(proc_log)
                 try:
@@ -299,6 +386,13 @@ async def ingest_emails(
                 continue
 
             task_id = f"tsk_{uuid.uuid4().hex[:8]}"
+            conf_score = extraction.get("confidence", 0.90)
+            assignee = extraction.get("assignee_id", "u_triage")
+            cat = extraction.get("category", "triage")
+            needs_rev = (conf_score < 0.65 or assignee == "u_triage" or cat == "triage")
+            rev_stat = "needs_review" if needs_rev else "completed"
+
+            import json
             db_task = TaskModel(
                 task_id=task_id,
                 candidate_id=norm_cand_id,
@@ -306,15 +400,23 @@ async def ingest_emails(
                 thread_id=thread_id,
                 title=extraction.get("title") or f"{email_data.get('subject') or 'New Email Request'}",
                 description=extraction.get("description") or (email_data.get("body") or "")[:200],
-                assignee_id=extraction.get("assignee_id", "u_triage"),
-                category=extraction.get("category", "triage"),
+                assignee_id=assignee,
+                category=cat,
                 priority=extraction.get("priority", "medium"),
                 due_date=extraction.get("due_date"),
                 deal_value_inr=extraction.get("deal_value_inr"),
                 company_name=extraction.get("company_name"),
-                confidence=extraction.get("confidence", 0.90),
+                confidence=conf_score,
                 created_at=now_iso,
-                updated_at=now_iso
+                updated_at=now_iso,
+                direction=extraction.get("direction", "inbound"),
+                intent=extraction.get("intent", cat),
+                signals=json.dumps(extraction.get("signals", ["Buying intent detected"])),
+                rules_triggered=json.dumps(extraction.get("rules_triggered", [])),
+                run_id=run_id,
+                needs_review=needs_rev,
+                review_status=rev_stat,
+                review_notes=None
             )
             db.add(db_task)
 
@@ -345,15 +447,62 @@ async def ingest_emails(
                 confidence=db_task.confidence,
                 task_id=task_id,
                 reasoning=extraction.get("reasoning"),
-                processed_at=now_iso
+                processed_at=now_iso,
+                direction=db_task.direction,
+                intent=db_task.intent,
+                signals=db_task.signals,
+                rules_triggered=db_task.rules_triggered,
+                run_id=run_id,
+                needs_review=needs_rev,
+                review_status=rev_stat
             )
             db.add(proc_log)
             try:
                 db.commit()
                 tasks_created += 1
+                if cat == "triage" or assignee == "u_triage":
+                    triage_count += 1
+                if needs_rev:
+                    spurious_count += 1
             except Exception as e:
                 db.rollback()
                 errors.append(str(e))
+
+    # Commit the Run history stats
+    if mongo_db is not None:
+        run_doc = {
+            "run_id": run_id,
+            "candidate_id": norm_cand_id,
+            "processed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "processed_count": len(prepared_emails),
+            "tasks_created": tasks_created,
+            "tasks_updated": tasks_updated,
+            "emails_skipped": skipped,
+            "triage_count": triage_count,
+            "spurious_count": spurious_count,
+            "errors_count": len(errors)
+        }
+        await mongo_db.ingestion_runs.insert_one(run_doc)
+    else:
+        from app.db.models import IngestionRunModel
+        run_obj = IngestionRunModel(
+            run_id=run_id,
+            candidate_id=norm_cand_id,
+            processed_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            processed_count=len(prepared_emails),
+            tasks_created=tasks_created,
+            tasks_updated=tasks_updated,
+            emails_skipped=skipped,
+            triage_count=triage_count,
+            spurious_count=spurious_count,
+            errors_count=len(errors)
+        )
+        db.add(run_obj)
+        try:
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            errors.append(str(e))
 
     return {
         "processed": len(prepared_emails),

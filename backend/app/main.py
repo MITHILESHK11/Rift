@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.db.database import engine, Base
 from app.db.mongo import init_mongo_indexes, is_mongo_active, clear_all_mongo_data
-from app.routers import tasks, ingest, chat, stats, users
+from app.routers import tasks, ingest, chat, stats, users, intelligence
 from app.services.sample_generator import generate_sample_emails
 
 # Create DB tables for SQL fallback (gracefully catch read-only filesystem errors on Vercel)
@@ -47,6 +47,7 @@ app.include_router(ingest.router)
 app.include_router(chat.router)
 app.include_router(stats.router)
 app.include_router(users.router)
+app.include_router(intelligence.router)
 
 @app.get("/")
 @app.get("/health")

@@ -6,6 +6,9 @@ import TaskDashboard from './components/TaskDashboard';
 import SingleEmailReader from './components/SingleEmailReader';
 import SkippedLog from './components/SkippedLog';
 import ChatPanel from './components/ChatPanel';
+import DecisionCenter from './components/DecisionCenter';
+import ReviewQueue from './components/ReviewQueue';
+import RunHistory from './components/RunHistory';
 
 const DEFAULT_CANDIDATE_ID = "priya.sharma@gmail.com";
 const API_BASE = import.meta.env.VITE_BACKEND_URL || "";
@@ -203,9 +206,18 @@ export default function App() {
                   {activeTab === 'tasks' && 'Routed Task Queue'}
                   {activeTab === 'single' && 'Real Email Reader & Tester'}
                   {activeTab === 'archives' && 'Skipped Noise Log (Rule 4)'}
+                  {activeTab === 'decision-center' && 'Operations Decision Center'}
+                  {activeTab === 'review-queue' && 'Human Triage Review Queue'}
+                  {activeTab === 'run-history' && 'Ingestion Run Telemetry'}
                 </h2>
                 <p className="text-body-md font-body-md text-on-surface-variant mt-1">
-                  Process raw payload data for automated triage and CRM sync.
+                  {activeTab === 'inbox' && 'Process raw payload data for automated triage and CRM sync.'}
+                  {activeTab === 'tasks' && 'Active section 5 tasks created in database store.'}
+                  {activeTab === 'single' && 'Read and test single inbound sales emails.'}
+                  {activeTab === 'archives' && 'Noise filters auditing and skipped inbox logs.'}
+                  {activeTab === 'decision-center' && 'Analyze confidence telemetry, spurious rates, and decision traces.'}
+                  {activeTab === 'review-queue' && 'Audit, calibrate, and override ambiguous classification decisions.'}
+                  {activeTab === 'run-history' && 'Track and trace batch processing execution runs.'}
                 </p>
               </div>
             </div>
@@ -237,6 +249,7 @@ export default function App() {
                   skippedEmails={skippedEmails}
                   stats={stats}
                   onRefresh={() => fetchTasksAndStats(candidateId)}
+                  API_BASE={API_BASE}
                 />
               </div>
             )}
@@ -248,6 +261,7 @@ export default function App() {
                   skippedEmails={skippedEmails}
                   stats={stats}
                   onRefresh={() => fetchTasksAndStats(candidateId)}
+                  API_BASE={API_BASE}
                 />
               </div>
             )}
@@ -266,6 +280,27 @@ export default function App() {
               <div className="flex-1 flex flex-col min-h-0">
                 <SkippedLog skippedEmails={skippedEmails} />
               </div>
+            )}
+
+            {activeTab === 'decision-center' && (
+              <DecisionCenter
+                candidateId={candidateId}
+                API_BASE={API_BASE}
+              />
+            )}
+
+            {activeTab === 'review-queue' && (
+              <ReviewQueue
+                candidateId={candidateId}
+                API_BASE={API_BASE}
+              />
+            )}
+
+            {activeTab === 'run-history' && (
+              <RunHistory
+                candidateId={candidateId}
+                API_BASE={API_BASE}
+              />
             )}
           </div>
         </div>

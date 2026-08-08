@@ -1,10 +1,30 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
-export default function TaskDashboard({ tasks, skippedEmails, stats, onRefresh }) {
+export default function TaskDashboard({ tasks, skippedEmails, stats, onRefresh, API_BASE = "" }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [assigneeFilter, setAssigneeFilter] = useState('ALL');
   const [priorityFilter, setPriorityFilter] = useState('ALL');
   const [selectedTask, setSelectedTask] = useState(null);
+  const [timeline, setTimeline] = useState([]);
+  const [loadingTimeline, setLoadingTimeline] = useState(false);
+
+  useEffect(() => {
+    if (selectedTask) {
+      setLoadingTimeline(true);
+      fetch(`${API_BASE}/api/thread-timeline/${selectedTask.thread_id}?candidate_id=${encodeURIComponent(selectedTask.candidate_id)}`)
+        .then(res => {
+          if (res.ok) return res.json();
+          return [];
+        })
+        .then(data => {
+          setTimeline(data || []);
+        })
+        .catch(err => console.error("Error fetching thread timeline:", err))
+        .finally(() => setLoadingTimeline(false));
+    } else {
+      setTimeline([]);
+    }
+  }, [selectedTask]);
 
   const filteredTasks = tasks.filter((t) => {
     const matchesSearch =
@@ -210,14 +230,139 @@ export default function TaskDashboard({ tasks, skippedEmails, stats, onRefresh }
                 <div><strong>Company:</strong> {selectedTask.company_name || 'null'}</div>
               </div>
 
-              {selectedTask.reasoning && (
-                <div>
-                  <strong className="text-on-surface-variant text-body-sm">Routing Reasoning:</strong>
-                  <p className="text-body-sm text-on-surface bg-secondary-container/30 p-2.5 rounded mt-1 italic">
-                    "{selectedTask.reasoning}"
-                  </p>
+              {/* Decision Trace details inside Task Inspection */}
+              <div className="border-t border-outline-variant/40 pt-4 mt-4 space-y-3">
+                <h4 className="text-title-sm font-bold text-on-surface flex items-center gap-1.5">
+                  <span className="material-symbols-outlined text-[18px]">saved_search</span>
+                  Decision Trace Details
+                </h4>
+
+                <div className="grid grid-cols-2 gap-2 text-xs bg-surface-bright p-3 rounded border border-outline-variant/30">
+                  <div><strong>Intent Classification:</strong> <span className="font-semibold">{selectedTask.intent || selectedTask.category || 'ambiguous'}</span></div>
+                  <div><strong>Directionality:</strong> <span className="font-semibold uppercase">{selectedTask.direction || 'inbound'}</span></div>
                 </div>
-              )}
+
+                {selectedTask.reasoning && (
+                  <div>
+                    <strong className="text-on-surface-variant text-[11px] uppercase tracking-wider">Evaluation Reasoning:</strong>
+                    <p className="text-body-sm text-on-surface bg-secondary-container/20 p-2.5 rounded mt-1 border border-outline-variant/20 italic">
+                      "{selectedTask.reasoning}"
+                    </p>
+                  </div>
+                )}
+
+                {(() => {
+                  const parseArray = (val) => {
+                    if (!val) return [];
+                    if (Array.isArray(val)) return val;
+                    try { return JSON.parse(val); } catch(e) { return [val]; }
+                  };
+                  const sigs = parseArray(selectedTask.signals);
+                  const rules = parseArray(selectedTask.rules_triggered);
+
+                  return (
+                    <>
+                      {sigs.length > 0 && (
+                        <div>
+                          <strong className="text-on-surface-variant text-[11px] uppercase tracking-wider block mb-1">Signals Detected:</strong>
+                          <div className="flex flex-col gap-1">
+                            {sigs.map((sig, idx) => (
+                              <div key={idx} className="flex items-center gap-1 text-body-xs text-on-surface-variant">
+                                <span className="material-symbols-outlined text-[14px] text-success">check</span>
+                                <span>{sig}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {rules.length > 0 && (
+                        <div>
+                          <strong className="text-on-surface-variant text-[11px] uppercase tracking-wider block mb-1">Rules Triggered:</strong>
+                          <div className="flex flex-wrap gap-1">
+                            {rules.map((rule, idx) => (
+                              <span 
+                                key={idx} 
+                                className="text-[10px] font-mono px-2 py-0.5 bg-secondary-container/20 text-on-secondary-container border border-outline-variant/30 rounded"
+                              >
+                                {rule}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
+
+              {/* Thread Timeline Section */}
+              <div className="border-t border-outline-variant pt-4 mt-4">
+                <h4 className="text-title-sm font-bold text-on-surface mb-3 flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[20px]">forum</span>
+                  Thread Timeline ({selectedTask.thread_id})
+                </h4>
+                
+                {loadingTimeline ? (
+                  <div className="text-body-xs text-on-surface-variant italic">Loading thread emails...</div>
+                ) : timeline.length === 0 ? (
+                  <div className="text-body-xs text-on-surface-variant italic">No emails found for this thread.</div>
+                ) : (
+                  <div className="relative pl-6 border-l border-outline-variant/60 ml-2 space-y-5 py-1">
+                    {timeline.map((email, idx) => {
+                      const statusText = email.status.replace('skipped_', 'skip_').replace('_', ' ');
+                      const parseSignals = (val) => {
+                        if (!val) return [];
+                        if (Array.isArray(val)) return val;
+                        try { return JSON.parse(val); } catch(e) { return [val]; }
+                      };
+                      const sigs = parseSignals(email.signals);
+
+                      return (
+                        <div key={email.email_id} className="relative">
+                          {/* Dot marker */}
+                          <div className="absolute -left-[30px] top-1.5 w-3.5 h-3.5 rounded-full bg-surface-container border-2 border-primary z-10" />
+                          
+                          <div className="text-body-xs text-on-surface-variant flex items-center gap-2">
+                            <span className="font-semibold text-on-surface">{email.from_name || email.from_email}</span>
+                            <span>·</span>
+                            <span>{new Date(email.received_at).toLocaleString('en-IN')}</span>
+                          </div>
+                          
+                          <div className="text-body-sm font-semibold text-on-surface mt-0.5">
+                            {email.subject}
+                          </div>
+
+                          <div className="mt-1 flex flex-wrap items-center gap-2">
+                            <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
+                              email.status === 'created_task' ? 'bg-success-container text-success' :
+                              email.status === 'updated_task' ? 'bg-primary-container text-primary' : 'bg-surface-container-high text-on-surface-variant'
+                            }`}>
+                              {statusText}
+                            </span>
+                            {email.direction && (
+                              <span className="text-[10px] text-on-surface-variant bg-surface-bright border border-outline-variant/30 px-1.5 py-0.5 rounded uppercase">
+                                {email.direction}
+                              </span>
+                            )}
+                          </div>
+
+                          {sigs.length > 0 && (
+                            <div className="mt-1.5 bg-surface-bright/50 p-2 rounded border border-outline-variant/10 text-[11px] text-on-surface-variant space-y-0.5">
+                              {sigs.map((sig, sidx) => (
+                                <div key={sidx} className="flex items-center gap-1.5">
+                                  <span className="material-symbols-outlined text-[12px] text-success">check</span>
+                                  <span>{sig}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
 
               <div>
                 <strong className="text-on-surface-variant text-body-sm">Raw Entity Extraction (JSON):</strong>

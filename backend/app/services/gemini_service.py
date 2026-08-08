@@ -46,6 +46,10 @@ Return STRICT JSON:
   "deal_value_inr": 2500000,
   "company_name": "Company Name or null",
   "confidence": 0.95,
+  "intent": "enterprise_rfp",
+  "direction": "inbound",
+  "signals": ["RFP request detected", "Deal value: ₹18L"],
+  "rules_triggered": ["enterprise_threshold"],
   "reasoning": "Explanation based on content."
 }}
 """
@@ -99,13 +103,60 @@ async def extract_with_gemini_async(email_data: Dict[str, Any], client: Optional
                     text_content = res_json["candidates"][0]["content"]["parts"][0]["text"]
                     extracted = json.loads(text_content)
 
+                    # 1. Calibrated Confidence Calculation
+                    raw_conf = float(extracted.get("confidence", 0.90))
+                    rules_assignee = rules_eval.get("assignee_id") or "u_triage"
+                    gemini_assignee = extracted.get("assignee_id") or "u_triage"
+                    intent = extracted.get("intent") or extracted.get("category") or "ambiguous"
+                    direction = extracted.get("direction") or "ambiguous"
+                    is_ambiguous = (gemini_assignee == "u_triage" or intent == "ambiguous" or direction == "ambiguous")
+
+                    calibrated_conf = raw_conf
+                    
+                    # Agreement check
+                    if rules_assignee == gemini_assignee:
+                        calibrated_conf += 0.05
+                    else:
+                        calibrated_conf -= 0.10
+                        
+                    # Ambiguity check
+                    if is_ambiguous:
+                        calibrated_conf -= 0.15
+                        
+                    # Noise / Outbound Vendor check
+                    if direction == "outbound_vendor" and intent in ["spam", "newsletter"]:
+                        calibrated_conf = 0.95 + (raw_conf * 0.05)
+                    else:
+                        if intent == "enterprise_rfp" and extracted.get("deal_value_inr") is None:
+                            calibrated_conf -= 0.08
+                        if not from_email:
+                            calibrated_conf -= 0.10
+
+                    calibrated_conf = min(1.0, max(0.10, round(calibrated_conf, 2)))
+
+                    # 2. Extract signals & rules_triggered arrays
+                    signals = extracted.get("signals") or []
+                    rules_triggered = extracted.get("rules_triggered") or []
+
+                    # Add Python evaluation results to signals/rules list
+                    combined = f"{subject}\n{body}"
+                    if is_psu_or_govt(combined, from_email):
+                        if "PSU/Govt tender override" not in signals:
+                            signals.append("PSU/Govt tender override")
+                        if "govt_override" not in rules_triggered:
+                            rules_triggered.append("govt_override")
+
                     if extracted.get("is_noise", False) or not rules_eval.get("should_create_task", True):
                         return {
                             "should_create_task": False,
                             "skip_reason": extracted.get("noise_type") or rules_eval.get("skip_reason") or "skipped_spam",
                             "category": None,
                             "assignee_id": None,
-                            "confidence": 0.99,
+                            "confidence": calibrated_conf,
+                            "intent": intent,
+                            "direction": direction,
+                            "signals": signals if signals else ["Noise criteria matched"],
+                            "rules_triggered": rules_triggered if rules_triggered else ["noise_filter"],
                             "reasoning": extracted.get("reasoning") or rules_eval.get("reasoning")
                         }
 
@@ -115,19 +166,39 @@ async def extract_with_gemini_async(email_data: Dict[str, Any], client: Optional
                     company_name = extracted.get("company_name") or rules_eval.get("company_name")
                     due_date = extracted.get("due_date") or rules_eval.get("due_date")
                     deal_val = extracted.get("deal_value_inr") if extracted.get("deal_value_inr") is not None else rules_eval.get("deal_value_inr")
-                    confidence = min(1.0, max(0.0, float(extracted.get("confidence", 0.90))))
 
-                    combined = f"{subject}\n{body}"
                     if is_psu_or_govt(combined, from_email):
                         assignee_id = "u_aarti"
                         category = "enterprise_rfp"
+                        if "PSU/Govt tender override" not in signals:
+                            signals.append("PSU/Govt tender override")
+                        if "govt_override" not in rules_triggered:
+                            rules_triggered.append("govt_override")
                     elif deal_val is not None:
                         if deal_val >= 1_000_000 and category in ["enterprise_rfp", "smb_enquiry", "triage"]:
                             assignee_id = "u_aarti"
                             category = "enterprise_rfp"
+                            if f"Deal value ₹{deal_val:,} matches enterprise threshold" not in signals:
+                                signals.append(f"Deal value ₹{deal_val:,} matches enterprise threshold")
+                            if "enterprise_threshold" not in rules_triggered:
+                                rules_triggered.append("enterprise_threshold")
                         elif deal_val < 1_000_000 and category in ["enterprise_rfp", "smb_enquiry", "triage"]:
                             assignee_id = "u_rohit"
                             category = "smb_enquiry"
+                            if f"Deal value ₹{deal_val:,} matches SMB threshold" not in signals:
+                                signals.append(f"Deal value ₹{deal_val:,} matches SMB threshold")
+                            if "smb_threshold" not in rules_triggered:
+                                rules_triggered.append("smb_threshold")
+
+                    # Add deadline override to rules
+                    from app.services.rules import parse_due_date
+                    _, is_within_72h = parse_due_date(combined, received_at)
+                    if is_within_72h:
+                        priority = "high"
+                        if "Deadline within 72 hours" not in signals:
+                            signals.append("Deadline within 72 hours")
+                        if "deadline_72h" not in rules_triggered:
+                            rules_triggered.append("deadline_72h")
 
                     return {
                         "should_create_task": True,
@@ -140,7 +211,11 @@ async def extract_with_gemini_async(email_data: Dict[str, Any], client: Optional
                         "due_date": due_date,
                         "deal_value_inr": deal_val,
                         "company_name": company_name,
-                        "confidence": confidence,
+                        "confidence": calibrated_conf,
+                        "intent": intent,
+                        "direction": direction,
+                        "signals": signals if signals else ["Buying intent detected"],
+                        "rules_triggered": rules_triggered,
                         "reasoning": f"Gemini 2.5 Flash: {extracted.get('reasoning', '')}"
                     }
             except Exception:

@@ -63,7 +63,9 @@ export default function Sidebar({ activeTab, setActiveTab, candidateId, setCandi
       </button>
 
       {/* Navigation */}
-      <div className="flex flex-col gap-1 flex-1">
+      <div className="flex flex-col gap-1.5 flex-1 overflow-y-auto">
+        <div className="text-[10px] font-bold text-on-surface-variant/60 tracking-wider px-3 mb-1 uppercase">Inbox</div>
+        
         <button
           onClick={() => setActiveTab('inbox')}
           className={`flex items-center gap-3 px-3 py-2 rounded-lg text-body-md font-body-md transition-all text-left w-full ${
@@ -112,6 +114,44 @@ export default function Sidebar({ activeTab, setActiveTab, candidateId, setCandi
         >
           <span className="material-symbols-outlined text-[20px]">inventory_2</span>
           Skipped Noise Log
+        </button>
+
+        <div className="text-[10px] font-bold text-on-surface-variant/60 tracking-wider px-3 mt-4 mb-1 uppercase">Intelligence</div>
+
+        <button
+          onClick={() => setActiveTab('decision-center')}
+          className={`flex items-center gap-3 px-3 py-2 rounded-lg text-body-md font-body-md transition-all text-left w-full ${
+            activeTab === 'decision-center'
+              ? 'bg-secondary-container text-on-secondary-container font-semibold'
+              : 'text-on-surface-variant hover:bg-surface-container-high'
+          }`}
+        >
+          <span className="material-symbols-outlined text-[20px]">analytics</span>
+          Decision Center
+        </button>
+
+        <button
+          onClick={() => setActiveTab('review-queue')}
+          className={`flex items-center gap-3 px-3 py-2 rounded-lg text-body-md font-body-md transition-all text-left w-full ${
+            activeTab === 'review-queue'
+              ? 'bg-secondary-container text-on-secondary-container font-semibold'
+              : 'text-on-surface-variant hover:bg-surface-container-high'
+          }`}
+        >
+          <span className="material-symbols-outlined text-[20px]">rate_review</span>
+          Review Queue
+        </button>
+
+        <button
+          onClick={() => setActiveTab('run-history')}
+          className={`flex items-center gap-3 px-3 py-2 rounded-lg text-body-md font-body-md transition-all text-left w-full ${
+            activeTab === 'run-history'
+              ? 'bg-secondary-container text-on-secondary-container font-semibold'
+              : 'text-on-surface-variant hover:bg-surface-container-high'
+          }`}
+        >
+          <span className="material-symbols-outlined text-[20px]">history</span>
+          Run History
         </button>
       </div>
 

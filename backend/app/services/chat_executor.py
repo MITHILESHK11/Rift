@@ -42,11 +42,13 @@ INTENTS:
 - LIST_HIGH_PRIORITY: list high priority tasks
 - GENERAL_STATS: get overview stats
 - THREAD_HISTORY: trace history of a specific thread_id or thread reference
+- LIST_RUNS: retrieve list of recent ingestion runs
+- DECISION_TRACE: explain the classification routing decision trace of a specific task or query term
 - OUT_OF_SCOPE: out-of-scope actions like sending emails, deleting, updating tasks
 
 Return ONLY a valid JSON object matching this schema:
 {{
-  "intent": "LIST_TASKS" | "COUNT_TASKS" | "LIST_SKIPPED" | "COUNT_SKIPPED" | "SUM_DEAL_VALUE" | "LIST_TRIAGE" | "LIST_LOW_CONFIDENCE" | "LIST_HIGH_PRIORITY" | "GENERAL_STATS" | "THREAD_HISTORY" | "OUT_OF_SCOPE",
+  "intent": "LIST_TASKS" | "COUNT_TASKS" | "LIST_SKIPPED" | "COUNT_SKIPPED" | "SUM_DEAL_VALUE" | "LIST_TRIAGE" | "LIST_LOW_CONFIDENCE" | "LIST_HIGH_PRIORITY" | "GENERAL_STATS" | "THREAD_HISTORY" | "LIST_RUNS" | "DECISION_TRACE" | "OUT_OF_SCOPE",
   "filters": {{
     "category": string or null,
     "assignee_id": string or null,
@@ -77,6 +79,18 @@ def fallback_intent_parse(query: str) -> Dict[str, Any]:
     # General stats
     if "spurious" in q or "noise rate" in q or "error rate" in q or "stats" in q or "summarize" in q or "summary" in q or "overview" in q:
         return {"intent": "GENERAL_STATS", "filters": filters, "limit": 20}
+        
+    # Ingestion run history
+    if "run history" in q or "ingestion run" in q or "latest run" in q or "batch" in q:
+        return {"intent": "LIST_RUNS", "filters": filters, "limit": 10}
+
+    # Decision trace / why
+    if "why was" in q or "decision trace" in q or "reason for" in q or "why skipped" in q or "assigned to" in q:
+        # Extract query term if possible
+        for name in ["aarti", "rohit", "meera", "karan", "divya", "triage", "orbit", "finance", "halcyon"]:
+            if name in q:
+                filters["query_term"] = name
+        return {"intent": "DECISION_TRACE", "filters": filters, "limit": 5}
         
     # Deal value aggregations
     if "deal value" in q or "total value" in q or "revenue" in q or "budget" in q or "value of" in q or "lakh" in q or "crore" in q or "potential" in q:
@@ -256,6 +270,21 @@ async def execute_intent_query(db: Session, intent_plan: Dict[str, Any], candida
                 ).sort("processed_at", 1).to_list(length=100)
                 return {"thread_id": t_id, "emails": logs, "count": len(logs)}
             return {"thread_id": None, "emails": [], "count": 0}
+        elif intent == "LIST_RUNS":
+            runs = await mongo_db.ingestion_runs.find({"candidate_id": norm_cand_id}, {"_id": 0}).sort("processed_at", -1).limit(limit).to_list(length=limit)
+            return {"runs": runs, "count": len(runs)}
+        elif intent == "DECISION_TRACE":
+            q = {"candidate_id": norm_cand_id}
+            if query_term:
+                q["$or"] = [
+                    {"subject": {"$regex": query_term, "$options": "i"}},
+                    {"from_name": {"$regex": query_term, "$options": "i"}},
+                    {"from_email": {"$regex": query_term, "$options": "i"}},
+                    {"task_id": {"$regex": query_term, "$options": "i"}},
+                    {"email_id": {"$regex": query_term, "$options": "i"}}
+                ]
+            item = await mongo_db.processed_emails.find_one(q, {"_id": 0})
+            return {"decision_trace": item}
         
         return {}
 
@@ -387,6 +416,62 @@ async def execute_intent_query(db: Session, intent_plan: Dict[str, Any], candida
                     "count": len(logs)
                 }
             return {"thread_id": None, "emails": [], "count": 0}
+        elif intent == "LIST_RUNS":
+            from app.db.models import IngestionRunModel
+            runs = db.query(IngestionRunModel).filter(IngestionRunModel.candidate_id == norm_cand_id).order_by(IngestionRunModel.processed_at.desc()).limit(limit).all()
+            return {
+                "runs": [
+                    {
+                        "run_id": r.run_id,
+                        "processed_at": r.processed_at,
+                        "processed_count": r.processed_count,
+                        "tasks_created": r.tasks_created,
+                        "tasks_updated": r.tasks_updated,
+                        "emails_skipped": r.emails_skipped,
+                        "spurious_count": r.spurious_count,
+                        "errors_count": r.errors_count
+                    }
+                    for r in runs
+                ],
+                "count": len(runs)
+            }
+        elif intent == "DECISION_TRACE":
+            query = db.query(ProcessedEmailModel).filter(ProcessedEmailModel.candidate_id == norm_cand_id)
+            if query_term:
+                query = query.filter(
+                    (ProcessedEmailModel.subject.contains(query_term)) |
+                    (ProcessedEmailModel.from_name.contains(query_term)) |
+                    (ProcessedEmailModel.from_email.contains(query_term)) |
+                    (ProcessedEmailModel.task_id.contains(query_term)) |
+                    (ProcessedEmailModel.email_id.contains(query_term))
+                )
+            item = query.order_by(ProcessedEmailModel.processed_at.desc()).first()
+            if item:
+                signals_data = []
+                rules_data = []
+                import json
+                if item.signals:
+                    try: signals_data = json.loads(item.signals)
+                    except Exception: signals_data = [item.signals]
+                if item.rules_triggered:
+                    try: rules_data = json.loads(item.rules_triggered)
+                    except Exception: rules_data = [item.rules_triggered]
+                return {
+                    "decision_trace": {
+                        "email_id": item.email_id,
+                        "from_name": item.from_name,
+                        "subject": item.subject,
+                        "status": item.status,
+                        "category": item.category,
+                        "confidence": item.confidence,
+                        "reasoning": item.reasoning,
+                        "direction": item.direction or "inbound",
+                        "intent": item.intent or item.category or "ambiguous",
+                        "signals": signals_data,
+                        "rules_triggered": rules_data
+                    }
+                }
+            return {"decision_trace": None}
             
         return {}
 

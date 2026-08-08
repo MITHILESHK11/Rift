@@ -196,16 +196,24 @@ def evaluate_deterministic_rules(email_data: Dict[str, Any]) -> Dict[str, Any]:
     
     clean_body = strip_quoted_text(body)
     combined_text = f"{subject}\n{clean_body}"
+    signals = ["Rule engine evaluation"]
+    rules_triggered = []
 
     # Rule 4: Noise Filter
     is_noise, noise_type = classify_spam_or_noise(subject, clean_body, from_email)
     if is_noise:
+        intent = "spam" if noise_type == "skipped_spam" else ("newsletter" if noise_type == "skipped_newsletter" else "out_of_office")
+        direction = "outbound_vendor" if noise_type == "skipped_spam" else "automated"
         return {
             "should_create_task": False,
             "skip_reason": noise_type,
             "category": None,
             "assignee_id": None,
             "confidence": 0.99,
+            "intent": intent,
+            "direction": direction,
+            "signals": ["Noise filter rule matched"],
+            "rules_triggered": ["noise_filter"],
             "reasoning": f"Filtered as {noise_type} by Rule 4."
         }
 
@@ -219,20 +227,33 @@ def evaluate_deterministic_rules(email_data: Dict[str, Any]) -> Dict[str, Any]:
     confidence = 0.85
     reasoning = []
 
+    if is_within_72h:
+        signals.append("Deadline within 72 hours")
+        rules_triggered.append("deadline_72h")
+
     # Rule 1: PSU/Govt Override
     if is_psu_or_govt(combined_text, from_email):
         assignee_id = "u_aarti"
         category = "enterprise_rfp"
+        signals.append("PSU/Govt tender override")
+        rules_triggered.append("govt_override")
         reasoning.append("PSU/Govt tender routed to Aarti per Rule 1 (overrides deal value).")
     elif deal_value is not None:
         if deal_value >= 1_000_000:
             assignee_id = "u_aarti"
             category = "enterprise_rfp"
+            signals.append(f"Deal value ₹{deal_value:,} matches enterprise threshold")
+            rules_triggered.append("enterprise_threshold")
             reasoning.append(f"Deal value ₹{deal_value:,} ≥ ₹10L routed to Aarti (Enterprise).")
         else:
             assignee_id = "u_rohit"
             category = "smb_enquiry"
+            signals.append(f"Deal value ₹{deal_value:,} matches SMB threshold")
+            rules_triggered.append("smb_threshold")
             reasoning.append(f"Deal value ₹{deal_value:,} < ₹10L routed to Rohit (SMB).")
+
+    intent = category
+    direction = "inbound"
 
     return {
         "should_create_task": True,
@@ -246,5 +267,9 @@ def evaluate_deterministic_rules(email_data: Dict[str, Any]) -> Dict[str, Any]:
         "deal_value_inr": deal_value,
         "company_name": company_name,
         "confidence": confidence,
+        "intent": intent,
+        "direction": direction,
+        "signals": signals,
+        "rules_triggered": rules_triggered,
         "reasoning": " ".join(reasoning) or "Evaluated via deterministic rules engine."
     }
