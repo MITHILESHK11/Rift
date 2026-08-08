@@ -50,11 +50,12 @@ async def ingest_emails(
     db: Session = Depends(get_db)
 ):
     """Section 7.1: Fast async batch email ingest processor supporting Object payloads, raw Email Arrays, Motor MongoDB & SQL."""
+    cand_str = candidate_id if isinstance(candidate_id, str) else None
     if isinstance(payload, list):
-        cand = candidate_id or settings.CANDIDATE_ID or "evaluator.test@gmail.com"
+        cand = cand_str or settings.CANDIDATE_ID or "evaluator.test@gmail.com"
         email_items = payload
     else:
-        cand = candidate_id or getattr(payload, "candidate_id", None) or settings.CANDIDATE_ID or "evaluator.test@gmail.com"
+        cand = cand_str or getattr(payload, "candidate_id", None) or settings.CANDIDATE_ID or "evaluator.test@gmail.com"
         email_items = payload.emails
 
     norm_cand_id = normalize_email(cand)
@@ -389,6 +390,8 @@ async def ingest_single_email(payload: SingleEmailComposeSchema, db: Session = D
     if mongo_db is not None:
         proc_log = await mongo_db.processed_emails.find_one({"candidate_id": cand_id, "email_id": email_id})
         task = await mongo_db.tasks.find_one({"candidate_id": cand_id, "source_email_id": email_id})
+        if proc_log: proc_log.pop("_id", None)
+        if task: task.pop("_id", None)
         action = proc_log.get("status") if proc_log else "unknown"
         task_data = task if task else None
     else:
@@ -413,5 +416,5 @@ async def ingest_single_email(payload: SingleEmailComposeSchema, db: Session = D
         "thread_id": thread_id,
         "action": action,
         "task": task_data,
-        "reasoning": proc_log.get("reasoning") if mongo_db else (proc_log.reasoning if proc_log else None)
+        "reasoning": proc_log.get("reasoning") if (mongo_db is not None and proc_log) else (proc_log.reasoning if proc_log else None)
     }
