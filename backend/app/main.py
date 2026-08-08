@@ -11,8 +11,11 @@ from app.db.mongo import init_mongo_indexes, is_mongo_active, clear_all_mongo_da
 from app.routers import tasks, ingest, chat, stats, users
 from app.services.sample_generator import generate_sample_emails
 
-# Create DB tables for SQL fallback
-Base.metadata.create_all(bind=engine)
+# Create DB tables for SQL fallback (gracefully catch read-only filesystem errors on Vercel)
+try:
+    Base.metadata.create_all(bind=engine)
+except Exception as e:
+    print(f"SQL fallback table creation skipped on serverless: {e}")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -67,6 +70,7 @@ async def clear_database():
     """Wipes all tasks, processed email logs, and thread maps from database safely."""
     if os.getenv("ENVIRONMENT", "development").lower() == "production" and not os.getenv("ALLOW_CLEAR_DATABASE", "").lower() == "true":
         return {"status": "error", "message": "Database clear endpoint disabled in production environment."}
+
     from app.db.models import TaskModel, ProcessedEmailModel, ThreadMapModel
     from app.db.database import SessionLocal
 
