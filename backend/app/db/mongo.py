@@ -12,15 +12,26 @@ def get_mongo_url() -> str:
     return settings.MONGODB_URL or (settings.DATABASE_URL if settings.DATABASE_URL.startswith("mongodb") else "")
 
 def get_motor_client() -> Optional[motor.motor_asyncio.AsyncIOMotorClient]:
-    global _mongo_client
+    global _mongo_client, _db
     mongo_url = get_mongo_url()
     if not mongo_url:
         return None
-    if _mongo_client is None:
+
+    try:
+        current_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        current_loop = None
+
+    saved_loop = getattr(_mongo_client, "_saved_loop", None) if _mongo_client else None
+
+    if _mongo_client is None or (current_loop is not None and saved_loop != current_loop):
         _mongo_client = motor.motor_asyncio.AsyncIOMotorClient(
             mongo_url,
             serverSelectionTimeoutMS=5000
         )
+        setattr(_mongo_client, "_saved_loop", current_loop)
+        _db = None
+
     return _mongo_client
 
 def get_motor_db():
