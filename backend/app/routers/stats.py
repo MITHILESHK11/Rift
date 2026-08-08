@@ -86,6 +86,7 @@ async def get_frontend_tasks(
         }
 
 @router.get("/api/stats")
+@router.get("/stats")
 async def get_system_stats(
     candidate_id: Optional[str] = Query(None, description="Optional candidate email to scope metrics"),
     db: Session = Depends(get_db)
