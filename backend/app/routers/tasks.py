@@ -121,6 +121,7 @@ async def create_task(payload: TaskCreateSchema, db: Session = Depends(get_db)):
             "updated_at": now_iso
         }
         await mongo_db.tasks.insert_one(doc)
+        doc.pop("_id", None)
         return doc
 
     else:
