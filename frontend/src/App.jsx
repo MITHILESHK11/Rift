@@ -8,7 +8,7 @@ import SkippedLog from './components/SkippedLog';
 import ChatPanel from './components/ChatPanel';
 
 const DEFAULT_CANDIDATE_ID = "priya.sharma@gmail.com";
-const API_BASE = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
+const API_BASE = import.meta.env.VITE_BACKEND_URL || "";
 
 export default function App() {
   const [candidateId, setCandidateId] = useState(() => {
