@@ -14,6 +14,7 @@ class ChatQueryPayload(BaseModel):
     query: str
 
 @router.post("/api/chat")
+@router.post("/chat")
 def chat_endpoint(payload: ChatQueryPayload, db: Session = Depends(get_db)):
     """Section 7.3: Grounded Conversational Q&A endpoint with supporting_data."""
     norm_cand_id = normalize_email(payload.candidate_id)
