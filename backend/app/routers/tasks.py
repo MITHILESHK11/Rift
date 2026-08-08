@@ -249,3 +249,83 @@ async def list_tasks(
             }
             for t in tasks
         ]
+
+@router.patch("/tasks/{task_id}")
+@router.patch("/api/tasks/{task_id}")
+async def patch_task(task_id: str, payload: TaskPatchSchema, db: Session = Depends(get_db)):
+    """Section 5.2: Update an existing task's fields in SQLite/MongoDB."""
+    mongo_db = get_motor_db() if is_mongo_active() else None
+    update_data = {k: v for k, v in payload.dict().items() if v is not None}
+    
+    if "assignee_id" in update_data and update_data["assignee_id"] not in ALLOWED_ASSIGNEES:
+        raise HTTPException(status_code=400, detail=f"Invalid assignee_id: {update_data['assignee_id']}")
+    if "category" in update_data and update_data["category"] not in ALLOWED_CATEGORIES:
+        raise HTTPException(status_code=400, detail=f"Invalid category: {update_data['category']}")
+    if "priority" in update_data and update_data["priority"] not in ALLOWED_PRIORITIES:
+        raise HTTPException(status_code=400, detail=f"Invalid priority: {update_data['priority']}")
+
+    now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    update_data["updated_at"] = now_iso
+
+    if mongo_db is not None:
+        result = await mongo_db.tasks.find_one_and_update(
+            {"task_id": task_id},
+            {"$set": update_data},
+            return_document=True
+        )
+        if not result:
+            raise HTTPException(status_code=404, detail=f"Task with ID {task_id} not found")
+        result.pop("_id", None)
+        return result
+    else:
+        task = db.query(TaskModel).filter(TaskModel.task_id == task_id).first()
+        if not task:
+            raise HTTPException(status_code=404, detail=f"Task with ID {task_id} not found")
+        for k, v in update_data.items():
+            setattr(task, k, v)
+        try:
+            db.commit()
+            db.refresh(task)
+        except Exception as e:
+            db.rollback()
+            raise HTTPException(status_code=500, detail=str(e))
+        return {
+            "task_id": task.task_id,
+            "candidate_id": task.candidate_id,
+            "source_email_id": task.source_email_id,
+            "thread_id": task.thread_id,
+            "title": task.title,
+            "description": task.description,
+            "assignee_id": task.assignee_id,
+            "category": task.category,
+            "priority": task.priority,
+            "due_date": task.due_date,
+            "deal_value_inr": task.deal_value_inr,
+            "company_name": task.company_name,
+            "confidence": task.confidence,
+            "created_at": task.created_at,
+            "updated_at": task.updated_at
+        }
+
+@router.delete("/tasks/{task_id}")
+@router.delete("/api/tasks/{task_id}")
+async def delete_task(task_id: str, db: Session = Depends(get_db)):
+    """Section 5.3: Delete an existing task in SQLite/MongoDB."""
+    mongo_db = get_motor_db() if is_mongo_active() else None
+
+    if mongo_db is not None:
+        result = await mongo_db.tasks.delete_one({"task_id": task_id})
+        if result.deleted_count == 0:
+            raise HTTPException(status_code=404, detail=f"Task with ID {task_id} not found")
+        return {"status": "success", "message": f"Task {task_id} deleted successfully"}
+    else:
+        task = db.query(TaskModel).filter(TaskModel.task_id == task_id).first()
+        if not task:
+            raise HTTPException(status_code=404, detail=f"Task with ID {task_id} not found")
+        db.delete(task)
+        try:
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            raise HTTPException(status_code=500, detail=str(e))
+        return {"status": "success", "message": f"Task {task_id} deleted successfully"}
