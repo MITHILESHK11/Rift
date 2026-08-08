@@ -91,7 +91,10 @@ async def extract_with_gemini_async(email_data: Dict[str, Any], client: Optional
         for attempt in range(3):
             try:
                 resp = await client.post(url, headers=headers, json=payload)
-                if resp.status_code == 200:
+                if resp.status_code in [401, 403]:
+                    print(f"Gemini API Key Unauthorized (HTTP {resp.status_code}). Using rules engine fallback.")
+                    break
+                elif resp.status_code == 200:
                     res_json = resp.json()
                     text_content = res_json["candidates"][0]["content"]["parts"][0]["text"]
                     extracted = json.loads(text_content)

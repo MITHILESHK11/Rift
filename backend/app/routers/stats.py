@@ -11,6 +11,7 @@ from app.config import settings, normalize_email
 router = APIRouter(tags=["Frontend Wrappers & Stats (Section 7.2)"])
 
 @router.get("/api/tasks")
+@router.get("/tasks")
 async def get_frontend_tasks(
     candidate_id: str = Query(..., description="Candidate email"),
     db: Session = Depends(get_db)
@@ -86,6 +87,7 @@ async def get_frontend_tasks(
         }
 
 @router.get("/api/stats")
+@router.get("/stats")
 async def get_system_stats(
     candidate_id: Optional[str] = Query(None, description="Optional candidate email to scope metrics"),
     db: Session = Depends(get_db)

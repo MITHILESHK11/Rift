@@ -42,6 +42,7 @@ class IngestPayloadSchema(BaseModel):
     candidate_id: Optional[str] = "evaluator.test@gmail.com"
     emails: List[EmailInputSchema]
 
+@router.post("/ingest")
 @router.post("/api/ingest")
 async def ingest_emails(
     payload: Union[IngestPayloadSchema, List[EmailInputSchema]],
@@ -360,6 +361,7 @@ async def ingest_emails(
     }
 
 @router.post("/api/ingest-single")
+@router.post("/ingest-single")
 async def ingest_single_email(payload: SingleEmailComposeSchema, db: Session = Depends(get_db)):
     """Real Email Reader endpoint: Reads a single real email composed or pasted by an evaluator."""
     cand_id = normalize_email(payload.candidate_id or settings.CANDIDATE_ID)

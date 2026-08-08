@@ -17,6 +17,7 @@ TEAM_ROSTER = [
       "scope": "Ambiguous items requiring human review" }
 ]
 
+@router.get("/users")
 @router.get("/api/users")
 def get_team_roster():
     """Returns team roster per Section 3.2."""
