@@ -18,6 +18,7 @@ TEAM_ROSTER = [
 ]
 
 @router.get("/users")
+@router.get("/api/users")
 def get_team_roster():
     """Returns team roster per Section 3.2."""
     return {"team": TEAM_ROSTER}
