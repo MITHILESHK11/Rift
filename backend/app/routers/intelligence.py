@@ -11,7 +11,7 @@ from app.db.mongo import get_motor_db, is_mongo_active
 from app.config import settings, normalize_email
 from app.services.rules import ALLOWED_ASSIGNEES, ALLOWED_CATEGORIES, ALLOWED_PRIORITIES
 
-router = APIRouter(tags=["Intelligence & Operations (Section Advanced)"])
+router = APIRouter(tags=["Intelligence & Operations"])
 
 @router.get("/api/runs")
 @router.get("/runs")
@@ -19,7 +19,7 @@ async def get_ingestion_runs(
     candidate_id: str = Query(..., description="Mandatory candidate email"),
     db: Session = Depends(get_db)
 ):
-    """Retrieve run history logs scoped by candidate_id."""
+    """Returns a paginated list of ingestion run summaries for a candidate, ordered by recency."""
     norm_cand_id = normalize_email(candidate_id)
     mongo_db = get_motor_db() if is_mongo_active() else None
 
@@ -51,7 +51,7 @@ async def get_run_details(
     candidate_id: str = Query(..., description="Candidate email"),
     db: Session = Depends(get_db)
 ):
-    """Retrieve details and item list of a specific run."""
+    """Returns the run summary and per-email processing trace for a single ingestion run."""
     norm_cand_id = normalize_email(candidate_id)
     mongo_db = get_motor_db() if is_mongo_active() else None
 

@@ -9,8 +9,7 @@ from app.db.models import TaskModel, ProcessedEmailModel, ThreadMapModel
 from app.db.mongo import get_motor_db, is_mongo_active
 
 GEMINI_PHRASER_PROMPT = """
-You are a grounded assistant for a Sales Inbox Task Router.
-Answer the user's question using ONLY the provided structured query results.
+Answer the user's question using ONLY the provided structured query results from the database.
 DO NOT invent or extrapolate any numbers not present in supporting_data.
 If the count is 0, state zero clearly.
 If the request is out-of-scope (asking to send an email or take actions), decline politely.
@@ -22,8 +21,8 @@ Write a concise 1-2 sentence response reflecting exact supporting_data metrics.
 """
 
 GEMINI_INTERPRET_PROMPT = """
-You are a translation layer for a Sales Inbox Router database.
-Analyze the user's query and conversation history to map it to a structured query plan.
+Analyse the user's query and conversation history to map it to a structured database query plan.
+Return a validated JSON query object — do not return free text.
 
 SCHEMA & CONFIGURATION CONTEXT:
 - Assignee IDs: u_aarti (Enterprise), u_rohit (SMB), u_meera (Marketing), u_karan (Alliances), u_divya (Finance), u_triage (Triage)

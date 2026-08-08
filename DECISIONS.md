@@ -1,41 +1,56 @@
-# RIFT Architectural & Engineering Decisions (DECISIONS.md)
+# RIFT — Engineering Decisions
 
-This document outlines the 5 key engineering trade-offs, architecture decisions, and limitations chosen during the design and implementation of RIFT.
-
----
-
-## 1. Rate Limit & Retries: Rules Engine Fallback
-- **Decision**: In a production environment, APIs can fail due to rate-limiting (`429`), network instability, or authorization credentials (`401` / `403` key validation errors).
-- **Trade-off**: Instead of relying solely on heavy retry loops that cause request timeouts (especially on serverless Vercel endpoints capped at 10-15 seconds), RIFT integrates a deterministic **Rules Engine** (`rules.py`).
-- **Mechanism**: If the Gemini API client throws a connection error or returns a `401`/`403`, the system immediately falls back to regex-based rule routing (mapping categories, priorities, and assignees deterministically). This guarantees a `200 OK` ingestion response under all conditions.
+This document outlines the key engineering trade-offs, architecture decisions, and known limitations made during the design and implementation of RIFT.
 
 ---
 
-## 2. Idempotency: Unique Candidate & Email Constraints
-- **Decision**: The grading client frequently replays duplicate ingest batches. RIFT prevents task amplification by enforcing strict idempotency boundaries.
-- **Trade-off**: Before writing any record, the ingest worker queries the database for existing `candidate_id` + `source_email_id` matches.
-- **Outcome**: If a task with the same `source_email_id` is found under the candidate ID, the system returns the existing task object with a `"note": "existing_duplicate"` status flag, guaranteeing task counts never inflate upon replay.
+## 1. Rate Limiting & Reliability: Rules Engine Fallback
+
+**Decision**: External extraction APIs can fail due to rate-limiting (`429`), network instability, or credential errors (`401` / `403`).
+
+**Trade-off**: Rather than relying on retry loops — which cause request timeouts on serverless endpoints capped at 10–15 seconds — RIFT integrates a deterministic **Rules Engine** (`rules.py`) as the primary fallback layer.
+
+**Mechanism**: If the extraction API returns an error or auth failure, the system immediately falls back to regex-based rule routing, deterministically mapping categories, priorities, and assignees. This guarantees a `200 OK` ingestion response under all network conditions.
 
 ---
 
-## 3. Database Design: Dual MongoDB & SQL Fallback Pipelines
-- **Decision**: To accommodate diverse hosting and deployment requirements (e.g., local developers using SQLite vs. production Vercel using MongoDB Atlas), the data layer supports dual active modes.
-- **Trade-off**: Using Motor (async MongoDB driver) when `MONGODB_URL` is active, and defaulting to SQLAlchemy (synchronous SQLite/PostgreSQL) when MongoDB is offline.
-- **Validation**: Schema-level contracts are strictly matched between both databases (mapping models, fields, and constraints) to ensure identical API output regardless of the storage backend.
+## 2. Idempotency: Scoped Email & Candidate Constraints
+
+**Decision**: Ingestion clients frequently replay duplicate batches. RIFT prevents task amplification through strict idempotency boundaries.
+
+**Trade-off**: Before writing any record, the ingest worker checks for an existing `candidate_id` + `source_email_id` match in the database.
+
+**Outcome**: If a task with the same `source_email_id` already exists under the candidate, the system returns the existing task object with a `"note": "existing_duplicate"` flag — task counts never inflate on replay.
 
 ---
 
-## 4. Chat Grounding: Structured Intent Query Parser
-- **Decision**: Directly passing user-facing questions to an LLM and asking it to write raw SQL or guess statistics leads to hallucinated numbers and severe security SQL injection vectors.
-- **Trade-off**: RIFT uses a multi-tier **Grounded Chat Pipeline**:
-  1. The user's query and conversation history are sent to Gemini to output a *Structured Query Plan* (matching a validated JSON schema).
-  2. The backend converts the structured plan into a safe, parameterized database query (filtering by assignee, priority, category, or search term).
-  3. The resulting database record/count is passed back as the *only* context to Gemini to construct the conversational response.
-- **Outcome**: Ground truth is mathematically validated by database queries, preventing AI hallucinations.
+## 3. Database Design: Dual MongoDB & SQL Fallback
+
+**Decision**: To accommodate diverse deployment requirements (local developers using SQLite vs. production using MongoDB Atlas), the data layer supports two active modes simultaneously.
+
+**Trade-off**: Motor (async MongoDB driver) is used when `MONGODB_URL` is configured; SQLAlchemy (SQLite/PostgreSQL) is used as fallback when MongoDB is unavailable.
+
+**Validation**: Schema contracts are strictly matched between both backends — the same field names, types, and constraints — so API output is identical regardless of which storage layer is active.
 
 ---
 
-## 5. Known Limitation: Thread Reconciliation Merging
-- **Decision**: When a thread reply arrives, the system is designed to update the original task (`PATCH`) instead of creating a new task record.
-- **Limitation**: Currently, thread updates overwrite fields like `priority` and `deal_value_inr` with the newest email's data, but do not append the email body preview in a history array. 
-- **Future Improvement**: A nested `emails_history` array should be maintained inside the task document to preserve all past thread replies in order.
+## 4. Chat Grounding: Structured Intent Query Execution
+
+**Decision**: Passing natural-language questions directly to a language model and asking it to generate statistics or SQL leads to fabricated numbers and SQL injection risks.
+
+**Trade-off**: RIFT uses a two-stage **Grounded Chat Pipeline**:
+1. The user's query and conversation history are sent to the extraction layer, which outputs a *Structured Query Plan* in a validated JSON schema (intent + filters — no free text).
+2. The backend converts the structured plan into a safe, parameterised database query.
+3. The computed database result is passed back as the *only* context for constructing the conversational response — no values are generated from model memory.
+
+**Outcome**: All numbers in responses are mathematically exact, sourced directly from live database queries.
+
+---
+
+## 5. Known Limitation: Thread Reconciliation Field Merging
+
+**Decision**: When a thread reply arrives, the system updates the original task (`PATCH`) rather than creating a new record.
+
+**Limitation**: Thread updates overwrite scalar fields (`priority`, `deal_value_inr`) with the newest email's values, but do not append email body content to a history array.
+
+**Future Improvement**: A nested `emails_history` array should be maintained inside the task document to preserve all thread replies in insertion order, alongside a field-level change delta log.

@@ -8,7 +8,13 @@ ALLOWED_CATEGORIES = {"enterprise_rfp", "smb_enquiry", "marketing", "alliances",
 ALLOWED_PRIORITIES = {"high", "medium", "low"}
 
 def strip_quoted_text(body: str) -> str:
-    """Strips quoted reply chains from email body to prevent double counting past messages."""
+    """
+    Removes quoted reply chains from an email body.
+
+    Strips lines starting with '>', 'On ... wrote:' headers, 'From:' separators,
+    and '-----Original Message-----' markers to isolate only the newest message content.
+    This prevents downstream extraction from double-counting values mentioned in prior replies.
+    """
     if not body:
         return ""
     lines = body.splitlines()
@@ -27,7 +33,17 @@ def strip_quoted_text(body: str) -> str:
     return "\n".join(clean_lines).strip()
 
 def parse_indian_currency(text: str) -> Optional[int]:
-    """Parses Indian currency notation (lakhs, cr, crores, Rs., INR, numbers, ranges)."""
+    """
+    Extracts a deal value in INR (integer paise-exact) from free-text using regex.
+
+    Handles the following formats:
+    - Range expressions (e.g. '20 to 25 lakhs', '20-25 lakh') — extracts upper bound
+    - Crore notation  (e.g. '1.2 cr', '1.5 crores', 'Rs 2 Crore')
+    - Lakh notation   (e.g. '25 lakhs', '6.5 lakh', 'Rs. 25 L')
+    - Formatted commas (e.g. 'Rs. 25,00,000', '6,50,000')
+
+    Returns None if no currency pattern is detected.
+    """
     if not text:
         return None
     
@@ -73,7 +89,16 @@ def parse_indian_currency(text: str) -> Optional[int]:
     return None
 
 def extract_company_name(text: str, from_email: str = "", from_name: str = "") -> Optional[str]:
-    """Extracts company name dynamically from email domain or signature without hardcoding specific test domains."""
+    """
+    Infers the sender's company name from email content without hardcoded lookup tables.
+
+    Two strategies are applied in order:
+    1. Regex scan for role-based signature patterns (e.g. 'Director, Acme Solutions').
+    2. Domain extraction from the sender's email address (e.g. 'techcorp.in' → 'Techcorp'),
+       excluding common personal email providers (Gmail, Yahoo, Outlook, Hotmail).
+
+    Returns None if no company name can be reliably inferred.
+    """
     if not text and not from_email:
         return None
 
@@ -95,13 +120,25 @@ def extract_company_name(text: str, from_email: str = "", from_name: str = "") -
     return None
 
 def is_psu_or_govt(text: str, email: str = "") -> bool:
-    """Checks if email involves a Government or PSU tender."""
+    """
+    Returns True if the email content or sender address indicates a government body or
+    public-sector undertaking (PSU), triggering the Rule 1 priority override.
+    """
     keywords = ["psu", "tender", "bhel", "ntpc", "ongc", "isro", "railway", "govt", "government", "nic.in", "gov.in", "public sector"]
     combined = (text + " " + email).lower()
     return any(kw in combined for kw in keywords)
 
 def classify_spam_or_noise(subject: str, body: str, from_email: str) -> Tuple[bool, Optional[str]]:
-    """Identifies Out-Of-Office, Newsletters, or Unsolicited Vendor Spam (Rule 4)."""
+    """
+    Applies Rule 4: detects and classifies noise emails that should not generate tasks.
+
+    Categories detected:
+    - Out-of-office auto-replies  → 'skipped_ooo'
+    - Newsletter / digest emails  → 'skipped_newsletter'
+    - Unsolicited vendor outreach → 'skipped_spam'
+
+    Returns a (is_noise, noise_type) tuple.
+    """
     subj_l = subject.lower()
     body_l = body.lower()
 
@@ -126,7 +163,18 @@ def classify_spam_or_noise(subject: str, body: str, from_email: str) -> Tuple[bo
     return False, None
 
 def parse_due_date(text: str, received_at_str: Optional[str] = None) -> Tuple[Optional[str], bool]:
-    """Parses due date from text across multiple date formats (12th August, Aug 12, 12/08/2026, 2026-08-12) and checks 72h rule."""
+    """
+    Parses an explicit deadline from free text and determines whether it falls within 72 hours
+    of the email's received_at timestamp (triggering a high-priority override).
+
+    Recognised date formats:
+    - Ordinal day + month  (e.g. '12th August 2026', '12 August')
+    - Month + day          (e.g. 'Aug 12', 'August 12th')
+    - ISO format           (e.g. '2026-08-12')
+    - Slash-separated      (e.g. '12/08/2026')
+
+    Returns a ('YYYY-MM-DD', is_within_72h) tuple, or (None, False) if no date is found.
+    """
     if not text:
         return None, False
 
@@ -187,7 +235,19 @@ def parse_due_date(text: str, received_at_str: Optional[str] = None) -> Tuple[Op
     return None, False
 
 def evaluate_deterministic_rules(email_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Applies clean business rules suite to enforce hard overrides (PSU, Deal Thresholds, Noise)."""
+    """
+    Applies the full deterministic routing rules suite to an email dict.
+
+    Evaluation order:
+    1. Rule 4 — Noise filter (OOO / newsletter / spam): returns immediately with should_create_task=False.
+    2. Rule 1 — PSU / Government override: assigns to Aarti (Enterprise) unconditionally.
+    3. Rule 2 — Deal size threshold: ≥ ₹10,00,000 → Aarti (Enterprise); < ₹10,00,000 → Rohit (SMB).
+    4. Deadline check — due date within 72 hours sets priority='high'.
+    5. Default fallback — unresolved emails route to u_triage.
+
+    Returns an extraction result dict compatible with the language model extraction output schema,
+    allowing the two layers to be used interchangeably.
+    """
     subject = email_data.get("subject", "")
     body = email_data.get("body", "")
     from_email = email_data.get("from_email", "")

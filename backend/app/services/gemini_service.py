@@ -7,8 +7,8 @@ from app.config import settings
 from app.services.rules import evaluate_deterministic_rules, is_psu_or_govt
 
 EMAIL_ANALYSIS_PROMPT = """
-You are an enterprise AI Sales Inbox Agent.
-Read and analyze the incoming business email and extract structured task fields.
+Analyse the incoming business email and extract structured task fields.
+Apply the routing rules and assignee roster below to determine the correct owner, category, and priority.
 
 ROSTER & ASSIGNEE SCOPE:
 - u_aarti (Sales - Enterprise): RFPs, RFIs, tenders, inbound deals >= ₹10,00,000, Government/PSU tenders.
@@ -55,7 +55,21 @@ Return STRICT JSON:
 """
 
 async def extract_with_gemini_async(email_data: Dict[str, Any], client: Optional[httpx.AsyncClient] = None) -> Dict[str, Any]:
-    """Reads email content via Gemini 2.5 Flash API asynchronously with HTTP connection pooling."""
+    """
+    Extracts structured task fields from a single email using the language model extraction API.
+
+    Falls back to the deterministic rules engine if the API key is absent, rate-limited,
+    or returns an auth error.  Confidence is calibrated post-extraction by comparing the
+    extraction result against the rules engine output and penalising ambiguous signals.
+
+    Args:
+        email_data: Raw email dict with keys subject, body, from_name, from_email, received_at.
+        client:     Optional shared httpx.AsyncClient for connection pooling across batch calls.
+
+    Returns:
+        Extraction result dict with keys: should_create_task, assignee_id, category, priority,
+        deal_value_inr, confidence, intent, direction, signals, rules_triggered, reasoning.
+    """
     rules_eval = evaluate_deterministic_rules(email_data)
     api_key = settings.GEMINI_API_KEY
     if not api_key:
@@ -216,7 +230,7 @@ async def extract_with_gemini_async(email_data: Dict[str, Any], client: Optional
                         "direction": direction,
                         "signals": signals if signals else ["Buying intent detected"],
                         "rules_triggered": rules_triggered,
-                        "reasoning": f"Gemini 2.5 Flash: {extracted.get('reasoning', '')}"
+                        "reasoning": extracted.get('reasoning', '')
                     }
             except Exception:
                 await asyncio.sleep(0.5 * (attempt + 1))
@@ -228,7 +242,19 @@ async def extract_with_gemini_async(email_data: Dict[str, Any], client: Optional
     return rules_eval
 
 async def classify_emails_concurrently(emails: List[Dict[str, Any]], concurrency_limit: int = 10) -> List[Dict[str, Any]]:
-    """Concurrently classifies a list of emails with a Semaphore concurrency limit."""
+    """
+    Extracts structured task fields from a batch of emails concurrently.
+
+    Uses a shared httpx.AsyncClient for HTTP connection pooling and an asyncio.Semaphore
+    to cap the number of in-flight extraction requests (default: 10) and avoid rate-limiting.
+
+    Args:
+        emails:            List of raw email dicts.
+        concurrency_limit: Maximum number of concurrent extraction requests.
+
+    Returns:
+        List of extraction result dicts, in the same order as the input list.
+    """
     semaphore = asyncio.Semaphore(concurrency_limit)
     async with httpx.AsyncClient(timeout=12.0) as client:
         async def worker(email_item):
@@ -239,7 +265,12 @@ async def classify_emails_concurrently(emails: List[Dict[str, Any]], concurrency
         return list(results)
 
 def extract_with_gemini(email_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Synchronous fallback wrapper."""
+    """
+    Synchronous wrapper around the async extraction function.
+
+    Used in contexts where an event loop cannot be awaited directly (e.g., sync test runners).
+    Falls back to the deterministic rules engine on any exception.
+    """
     try:
         loop = asyncio.get_event_loop()
         if loop.is_running():

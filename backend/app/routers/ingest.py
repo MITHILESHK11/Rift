@@ -13,7 +13,7 @@ from app.config import settings, normalize_email
 from app.services.gemini_service import classify_emails_concurrently, extract_with_gemini_async
 from app.services.rules import strip_quoted_text
 
-router = APIRouter(tags=["Ingest API & Real Email Reader (Section 7.1)"])
+router = APIRouter(tags=["Ingest & Email Processing"])
 
 class EmailInputSchema(BaseModel):
     email_id: Optional[str] = None
@@ -49,7 +49,21 @@ async def ingest_emails(
     candidate_id: Optional[str] = Query(None),
     db: Session = Depends(get_db)
 ):
-    """Section 7.1: Fast async batch email ingest processor supporting Object payloads, raw Email Arrays, Motor MongoDB & SQL."""
+    """
+    Async batch email ingest endpoint.
+
+    Accepts either a structured payload object ({candidate_id, emails: [...]}) or
+    a raw array of email objects.  candidate_id may be provided as a query parameter
+    or inside the payload body; the query parameter takes precedence.
+
+    Processing pipeline per email:
+    1. Assign email_id and thread_id if not provided.
+    2. Run concurrent extraction for the full batch (language model + rules engine fallback).
+    3. For each email: check idempotency, resolve thread reconciliation, write task or
+       processed-email record, log run telemetry.
+    4. Flag low-confidence or triage-category emails for human review.
+    5. Persist ingestion run summary to IngestionRunModel.
+    """
     cand_str = candidate_id if isinstance(candidate_id, str) else None
     if isinstance(payload, list):
         cand = cand_str or settings.CANDIDATE_ID or "evaluator.test@gmail.com"

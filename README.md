@@ -1,8 +1,8 @@
-# Rift Sales Inbox Task Router & Grounded Chat Assistant
+# RIFT — Sales Inbox Router & Grounded Chat
 
-An production-grade enterprise sales inbox routing service and grounded AI chat copilot built for the **FDE Challenge**.
+A production-grade enterprise sales inbox routing service and grounded conversational query interface.
 
-It automatically ingests raw B2B email payloads, extracts structured deal entities via **Gemini 2.5 Flash**, applies deterministic business routing rules (PSU overrides, deal thresholds, spam filtering), persists deduplicated task records to **MongoDB / SQLite / PostgreSQL**, and answers natural language queries with **100% grounded, zero-hallucination SQL/NoSQL query execution**.
+RIFT automatically ingests raw B2B email payloads, extracts structured deal entities using a language model extraction pipeline, applies a deterministic business routing rules engine, persists deduplicated task records to MongoDB or SQLite/PostgreSQL, and answers natural-language queries using strict database-grounded execution with no hallucination.
 
 ---
 
@@ -14,104 +14,121 @@ It automatically ingests raw B2B email payloads, extracts structured deal entiti
 
 ## Core Capabilities
 
-1. **Section 5 Task API (`/tasks`, `/users`)**:
-   - Complete Task CRUD operations (`POST`, `GET`, `PATCH`, `DELETE`).
-   - Strict enum validation (`category`, `priority`, `assignee_id`).
-   - Scoped filtering by `candidate_id`, `assignee_id`, `category`, `priority`, and date ranges.
+### 1. Task API (`/tasks`, `/users`)
+- Full Task CRUD: `POST`, `GET`, `PATCH`, `DELETE`
+- Strict enum validation on `category`, `priority`, and `assignee_id`
+- Candidate-scoped filtering by `assignee_id`, `category`, `priority`, `thread_id`, and date ranges
+- Idempotent write guarantees — replaying duplicate ingestion batches never creates duplicate task records
 
-2. **Section 7 Ingest API (`/ingest`, `/api/ingest-single`)**:
-   - Fast async batch email routing pipeline.
-   - Extracts deal value (INR), company name, due date, category, and priority using **Gemini 2.5 Flash**.
-   - Thread reconciliation: updates existing tasks on email thread replies (`is_reply=true`).
-   - Rule 4 filtering: automatically skips out-of-office auto-replies, spam, and newsletters.
+### 2. Batch Ingest API (`/ingest`, `/api/ingest-single`)
+- Async batch email routing pipeline with configurable concurrency
+- Extracts deal value (INR), company name, due date, category, and priority via the language model extraction layer
+- Thread reconciliation: replies to an existing thread update the matching task instead of creating a new one
+- Rule 4 noise filtering: automatically skips out-of-office auto-replies, newsletters, and promotional spam
 
-3. **Deterministic Business Rules Engine (Section 4)**:
-   - **Rule 1 (PSU / Government Priority Override)**: PSU / PSU-adjacent / Government emails are assigned to **u_aarti** regardless of deal size.
-   - **Rule 2 (Deal Size Routing)**: Commercial RFPs $\ge ₹10,000,000$ assigned to **u_aarti** (Enterprise); $< ₹10,000,000$ assigned to **u_rohit** (SMB).
-   - **Rule 3 (Category Specialization)**: Marketing requests -> **u_meera**, Partnerships -> **u_karan**, Billing/Refunds -> **u_divya**, Unclear -> **u_triage**.
-   - **Rule 4 (Noise Filter)**: Auto-replies, newsletters, and promotional spam do not generate tasks.
-   - **Rule 5 (Currency Extraction)**: Standardizes Lakhs ($₹1\text{L} = 100,000$), Crores ($₹1\text{Cr} = 10,000,000$), USD ($\$1 = ₹83$), and numeric representations.
+### 3. Business Rules Engine
+| Rule | Description |
+|---|---|
+| **Rule 1 — PSU / Government Override** | Emails from government bodies or PSU-adjacent senders are assigned to Aarti (Enterprise), regardless of deal size |
+| **Rule 2 — Deal Size Routing** | Deals ≥ ₹10,00,000 → Aarti (Enterprise); < ₹10,00,000 → Rohit (SMB) |
+| **Rule 3 — Category Specialisation** | Marketing → Meera · Alliances/Partners → Karan · Billing/Finance → Divya · Ambiguous → Triage |
+| **Rule 4 — Noise Filter** | Auto-replies, newsletters, and unsolicited vendor spam do not generate tasks |
+| **Rule 5 — Currency Normalisation** | Parses Lakhs, Crores, USD→INR, formatted numbers, and range expressions to a single integer value |
 
-4. **Section 8 Grounded Copilot Chat API (`/api/chat`)**:
-   - 2-Stage anti-hallucination execution.
-   - **Stage 1 (Query Planner)**: Converts user query into DB queries to fetch computed metrics and supporting task lists (`supporting_data`).
-   - **Stage 2 (Phraser)**: Formats response strictly using computed ground-truth data.
+### 4. Grounded Chat API (`/api/chat`)
+- Two-stage, zero-hallucination query execution
+- **Stage 1 — Query Planner**: maps the natural-language query to a structured database query plan (intent + filters)
+- **Stage 2 — Phraser**: constructs the response using only computed database values — no free-form generation from memory
+- Offline fallback: deterministic regex intent parser operates without external API access
 
-5. **Flexible Multi-Database Architecture**:
-   - Supports **MongoDB** (`MONGODB_URL`), **SQLite** (`DATABASE_URL=sqlite:///./sales_inbox.db`), and **PostgreSQL / Supabase**.
+### 5. Intelligence & Operations Layer
+- Full ingestion run history with per-batch telemetry (tasks created, skipped, spurious rate)
+- Decision trace: per-email audit log showing signals, rules triggered, assignee rationale, and confidence score
+- Human triage workspace: intercept low-confidence or ambiguous emails, override routing, write audit notes
+- Thread timeline: ordered history of all emails in a thread with field change deltas (priority, deal value)
 
-6. **Vercel Cloud Deployment Ready**:
-   - Pre-configured `vercel.json` for 1-click cloud deployment of both React Vite frontend and FastAPI backend serverless functions.
+### 6. Multi-Database Architecture
+- **MongoDB** (Motor async driver) — primary in production
+- **SQLite / PostgreSQL** (SQLAlchemy) — local development and serverless fallback
+- Schema contracts are strictly matched between both backends; API output is identical regardless of storage layer
+
+### 7. Vercel Deployment
+- Pre-configured `vercel.json` for one-command deployment of both the React Vite frontend and FastAPI serverless backend
 
 ---
 
 ## Directory Structure
 
 ```
-d:\CLAUDE\
-├── rift_logo.png                    # Brand logo image
+/
 ├── backend/
 │   ├── app/
-│   │   ├── main.py                  # FastAPI application entrypoint
-│   │   ├── config.py                # Environment configuration & normalization
+│   │   ├── main.py                    # FastAPI application entrypoint, CORS, clear-database guard
+│   │   ├── config.py                  # Environment variable loading and email normalisation
 │   │   ├── db/
-│   │   │   ├── database.py          # SQLAlchemy engine & session factory
-│   │   │   ├── models.py            # TaskModel, ProcessedEmailModel, ThreadMapModel
-│   │   │   └── mongo.py             # Motor async MongoDB helper
+│   │   │   ├── database.py            # SQLAlchemy engine and session factory
+│   │   │   ├── models.py              # TaskModel, ProcessedEmailModel, ThreadMapModel, IngestionRunModel
+│   │   │   └── mongo.py               # Motor async MongoDB client, index initialisation
 │   │   ├── routers/
-│   │   │   ├── tasks.py             # Section 5 Task API endpoints
-│   │   │   ├── ingest.py            # Section 7 Ingestion & single email router
-│   │   │   ├── chat.py              # Section 8 Grounded chat assistant endpoint
-│   │   │   ├── stats.py             # Dashboard statistics & joined task logs
-│   │   │   └── users.py             # Team roster & user endpoints
+│   │   │   ├── tasks.py               # Task CRUD endpoints
+│   │   │   ├── ingest.py              # Batch and single-email ingestion pipeline
+│   │   │   ├── chat.py                # Grounded chat query endpoint
+│   │   │   ├── stats.py               # Dashboard statistics and processed email log
+│   │   │   ├── users.py               # Team roster and assignee lookup
+│   │   │   └── intelligence.py        # Run history, decision trace, triage, thread timeline
 │   │   └── services/
-│   │       ├── gemini_service.py    # Gemini 2.5 Flash LLM extraction service
-│   │       ├── rules.py             # Deterministic business routing engine & currency regex
-│   │       ├── chat_executor.py     # 2-Stage grounded chat executor
-│   │       └── sample_generator.py # Synthetic sample batch generator
-│   ├── tests/                       # Pytest automated test suite
-│   └── requirements.txt
+│   │       ├── gemini_service.py      # Language model extraction layer (async, connection-pooled)
+│   │       ├── rules.py               # Deterministic routing rules engine and currency parser
+│   │       ├── chat_executor.py       # Two-stage grounded chat executor
+│   │       └── sample_generator.py    # Synthetic batch email generator for testing
+│   ├── requirements.txt
+│   ├── verify_all_endpoints.py        # Core endpoint integration test script
+│   └── verify_intelligence_endpoints.py  # Intelligence layer integration test script
 ├── frontend/
 │   ├── public/
-│   │   └── rift_logo.png            # Static brand logo image
+│   │   └── rift_logo.png
 │   ├── src/
-│   │   ├── App.jsx                  # Main 3-pane dashboard container
+│   │   ├── App.jsx                    # Root layout and view router
 │   │   ├── components/
-│   │   │   ├── Sidebar.jsx          # Navigation sidebar & candidate ID switcher
-│   │   │   ├── JsonInput.jsx        # Raw email batch payload reader
-│   │   │   ├── TaskDashboard.jsx    # Triage Queue & task table
-│   │   │   ├── SingleEmailReader.jsx# Real email reader interface
-│   │   │   ├── SkippedLog.jsx       # Rule 4 noise audit log
-│   │   │   └── ChatPanel.jsx        # Copilot Analysis sidebar & JSON grounding
-│   │   └── index.css                # Styling directives
-│   ├── index.html                   # HTML entrypoint
+│   │   │   ├── Sidebar.jsx            # Navigation sidebar and candidate switcher
+│   │   │   ├── JsonInput.jsx          # Batch email JSON paste and upload interface
+│   │   │   ├── TaskDashboard.jsx      # Task table with inspection modal and thread timeline
+│   │   │   ├── SingleEmailReader.jsx  # Single email compose and process interface
+│   │   │   ├── SkippedLog.jsx         # Noise filter audit log
+│   │   │   ├── ChatPanel.jsx          # Grounded chat query interface
+│   │   │   ├── DecisionCenter.jsx     # Decision audit log, confidence telemetry, spurious rate
+│   │   │   ├── ReviewQueue.jsx        # Human triage workspace and routing override form
+│   │   │   └── RunHistory.jsx         # Ingestion run list and per-item trace inspector
+│   │   └── index.css
+│   ├── index.html
 │   └── package.json
-├── architecture_flowchart.svg       # Flowchart architecture diagram
-├── vercel.json                      # Vercel deployment configuration
-├── DECISIONS.md                     # Engineering trade-offs & architecture rationale
-└── EVALS.md                         # Benchmark suite precision & recall report
+├── architecture_flowchart.png
+├── vercel.json
+├── DECISIONS.md                       # Engineering trade-offs and architecture rationale
+├── EVALS.md                           # Routing precision, recall, and F1 evaluation report
+└── README.md
 ```
 
 ---
 
 ## Getting Started
 
-### Environment Setup (`.env`)
+### Environment Variables
 
-Create a `.env` file in the root directory:
+Create a `.env` file in the project root:
 
 ```env
-# Gemini 2.5 Flash API Key
-GEMINI_API_KEY=your_gemini_api_key_here
+# Language model API key
+GEMINI_API_KEY=your_key_here
 GEMINI_MODEL=gemini-2.5-flash
 
-# MongoDB Connection URL (Optional - paste your MongoDB string here)
+# MongoDB connection string (leave blank to use SQLite)
 MONGODB_URL=
 
-# SQL Database URL (Defaults to local SQLite)
+# SQL database URL (defaults to local SQLite)
 DATABASE_URL=sqlite:///./sales_inbox.db
 
-# Server Port
+# Server port
 PORT=8000
 ```
 
@@ -119,64 +136,96 @@ PORT=8000
 
 ### Running Locally
 
-#### 1. Backend Server (FastAPI)
+**Backend (FastAPI)**
 
 ```bash
 cd backend
 pip install -r requirements.txt
 python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
-- API Documentation: `http://localhost:8000/docs`
-- Health Check: `http://localhost:8000/`
 
-#### 2. Frontend UI (React + Vite)
+Interactive API docs: `http://localhost:8000/docs`  
+Health check: `http://localhost:8000/api/health`
+
+**Frontend (React + Vite)**
 
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
-- Dashboard Interface: `http://localhost:3000`
+
+Dashboard: `http://localhost:5173`
 
 ---
 
-### Deployment to Vercel
-
-The workspace includes a root `vercel.json` configured for Vercel deployment:
+### Deploying to Vercel
 
 ```bash
 npm i -g vercel
 vercel
 ```
 
+Both the React frontend (static) and FastAPI backend (serverless functions) are configured in `vercel.json`.
+
 ---
 
-## API Summary
+## API Reference
+
+### Core Endpoints
 
 | Method | Endpoint | Description |
-| :--- | :--- | :--- |
-| `POST` | `/ingest` | Synchronous batch email ingestion and routing pipeline |
-| `POST` | `/tasks` | Create task manually |
-| `GET` | `/tasks` | Query tasks filtered by `candidate_id`, `category`, `priority`, `assignee_id` |
-| `PATCH` | `/tasks/{id}` | Update task details |
-| `DELETE` | `/tasks/{id}` | Delete task |
-| `POST` | `/api/chat` | Grounded natural language query copilot |
-| `POST` | `/api/ingest-single` | Process a single real email |
-| `POST` | `/api/clear-database` | Wipe database clean |
-| `GET` | `/users` | Get team roster and assignees |
-| `GET` | `/docs` | Interactive Swagger API documentation |
+|:---|:---|:---|
+| `GET` | `/api/health` | Health check and database status |
+| `POST` | `/api/ingest` | Batch email ingestion and routing |
+| `POST` | `/api/ingest-single` | Process a single composed email |
+| `GET` | `/api/tasks` | Query tasks (filtered by `candidate_id`, `category`, `priority`, etc.) |
+| `POST` | `/api/tasks` | Manually create a task |
+| `PATCH` | `/api/tasks/{id}` | Update task fields |
+| `DELETE` | `/api/tasks/{id}` | Delete a task |
+| `POST` | `/api/chat` | Grounded natural-language query |
+| `GET` | `/api/stats` | Dashboard statistics and category distribution |
+| `GET` | `/api/users` | Team roster and assignee list |
+| `GET` | `/docs` | Interactive Swagger documentation |
+
+### Intelligence & Operations Endpoints
+
+| Method | Endpoint | Description |
+|:---|:---|:---|
+| `GET` | `/api/runs` | List ingestion run history for a candidate |
+| `GET` | `/api/runs/{run_id}` | Run details with per-item trace |
+| `GET` | `/api/decision-center` | Aggregate confidence telemetry and spurious rate |
+| `GET` | `/api/triage` | Emails flagged for human review |
+| `POST` | `/api/triage/{email_id}/review` | Commit a human review decision |
+| `GET` | `/api/thread-timeline/{thread_id}` | Ordered thread history with field change deltas |
 
 ---
 
-## Test Suite Execution
+## Verification Scripts
 
-Run the backend pytest suite:
+Test all core endpoints against any environment:
 
 ```bash
 cd backend
-python -m pytest tests/
+python verify_all_endpoints.py http://localhost:8000
+# or against production:
+python verify_all_endpoints.py https://rift-tan.vercel.app
 ```
-Output:
+
+Test the intelligence and operations layer:
+
+```bash
+cd backend
+python verify_intelligence_endpoints.py http://localhost:8000
 ```
-============================= 12 passed in 4.23s ==============================
-```
+
+Both scripts print per-endpoint pass/fail status and exit with a non-zero code on any failure.
+
+---
+
+## Production Safety
+
+- `POST /api/clear-database` is **blocked by default** in all environments
+- Enabling it requires the `ALLOW_CLEAR_DATABASE=true` environment variable to be explicitly set
+- Even when enabled, a `candidate_id` query parameter is required — only that candidate's data is deleted
+- The primary production candidate is hardcoded as protected and cannot be cleared by this endpoint under any condition

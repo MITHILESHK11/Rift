@@ -26,8 +26,8 @@ async def lifespan(app: FastAPI):
     # Shutdown
 
 app = FastAPI(
-    title="Sales Inbox Task Router & Grounded Chat API",
-    description="Unified backend service fulfilling Alumnx FDE Challenge specs with Motor MongoDB & Vercel support.",
+    title="RIFT — Sales Inbox Router & Grounded Chat",
+    description="Production-grade sales inbox routing service with deterministic rules engine, language model extraction, candidate-scoped task persistence, and grounded natural-language query interface.",
     version="1.0.0",
     lifespan=lifespan
 )
@@ -55,7 +55,7 @@ app.include_router(intelligence.router)
 def health_check():
     return {
         "status": "healthy",
-        "service": "Sales Inbox Task Router & Grounded Chat API",
+        "service": "RIFT Sales Inbox Router",
         "mongodb_active": is_mongo_active(),
         "candidate_id": settings.CANDIDATE_ID,
         "docs_url": "/docs"

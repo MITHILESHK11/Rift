@@ -13,7 +13,7 @@ from app.db.mongo import get_motor_db, is_mongo_active
 from app.config import settings, normalize_email
 from app.services.rules import ALLOWED_ASSIGNEES, ALLOWED_CATEGORIES, ALLOWED_PRIORITIES
 
-router = APIRouter(tags=["Task API (Section 5)"])
+router = APIRouter(tags=["Task API"])
 
 class TaskCreateSchema(BaseModel):
     candidate_id: str
@@ -43,7 +43,7 @@ class TaskPatchSchema(BaseModel):
 @router.post("/tasks", status_code=status.HTTP_201_CREATED)
 @router.post("/api/tasks", status_code=status.HTTP_201_CREATED)
 async def create_task(payload: TaskCreateSchema, db: Session = Depends(get_db)):
-    """Section 5.1: Create a task with strict enum error validation and candidate-scoped deduplication."""
+    """Creates a task with enum validation and candidate-scoped idempotency deduplication."""
     if payload.assignee_id not in ALLOWED_ASSIGNEES:
         return JSONResponse(
             status_code=400,
@@ -204,7 +204,7 @@ async def list_tasks(
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db)
 ):
-    """Section 5.4: Read-only candidate-scoped task list endpoint (Zero GET mutations)."""
+    """Returns a candidate-scoped, filterable task list. Read-only — performs no mutations."""
     norm_cand_id = normalize_email(candidate_id)
     mongo_db = get_motor_db() if is_mongo_active() else None
 
