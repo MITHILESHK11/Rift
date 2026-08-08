@@ -100,7 +100,7 @@ export default function App() {
           message: `Routing payload in serverless chunks... (${Math.min(i + chunkSize, rawEmails.length)} / ${rawEmails.length} emails)`
         });
 
-        const res = await fetch(`${API_BASE}/ingest`, {
+        const res = await fetch(`${API_BASE}/api/ingest?candidate_id=${encodeURIComponent(candidateId)}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

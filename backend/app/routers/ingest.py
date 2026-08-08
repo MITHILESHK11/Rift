@@ -2,7 +2,7 @@ import uuid
 import datetime
 import asyncio
 from typing import List, Dict, Any, Optional, Union
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
@@ -44,16 +44,20 @@ class IngestPayloadSchema(BaseModel):
 
 @router.post("/ingest")
 @router.post("/api/ingest")
-async def ingest_emails(payload: Union[IngestPayloadSchema, List[EmailInputSchema]], db: Session = Depends(get_db)):
+async def ingest_emails(
+    payload: Union[IngestPayloadSchema, List[EmailInputSchema]],
+    candidate_id: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
+):
     """Section 7.1: Fast async batch email ingest processor supporting Object payloads, raw Email Arrays, Motor MongoDB & SQL."""
     if isinstance(payload, list):
-        candidate_id = settings.CANDIDATE_ID or "evaluator.test@gmail.com"
+        cand = candidate_id or settings.CANDIDATE_ID or "evaluator.test@gmail.com"
         email_items = payload
     else:
-        candidate_id = payload.candidate_id or settings.CANDIDATE_ID or "evaluator.test@gmail.com"
+        cand = candidate_id or getattr(payload, "candidate_id", None) or settings.CANDIDATE_ID or "evaluator.test@gmail.com"
         email_items = payload.emails
 
-    norm_cand_id = normalize_email(candidate_id)
+    norm_cand_id = normalize_email(cand)
     mongo_db = get_motor_db() if is_mongo_active() else None
     
     tasks_created = 0
