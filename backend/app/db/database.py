@@ -1,9 +1,12 @@
+import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 from app.config import settings
 
 db_url = settings.DATABASE_URL
-# Handle postgresql vs postgres scheme from cloud providers if needed
+if os.getenv("VERCEL") or (db_url.startswith("sqlite") and "./" in db_url):
+    db_url = "sqlite:////tmp/sales_inbox.db"
+
 if db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql://", 1)
 
