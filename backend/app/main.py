@@ -1,10 +1,6 @@
 import sys
-from pathlib import Path
-
-# Make backend/ available on Python's import path when deployed to Vercel
-BACKEND_DIR = Path(__file__).resolve().parents[1]
-if str(BACKEND_DIR) not in sys.path:
-    sys.path.insert(0, str(BACKEND_DIR))
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -69,10 +65,8 @@ def get_sample_emails(count: int = 250):
 @app.delete("/api/clear-database")
 async def clear_database():
     """Wipes all tasks, processed email logs, and thread maps from database safely."""
-    import os
     if os.getenv("ENVIRONMENT", "development").lower() == "production" and not os.getenv("ALLOW_CLEAR_DATABASE", "").lower() == "true":
         return {"status": "error", "message": "Database clear endpoint disabled in production environment."}
-
     from app.db.models import TaskModel, ProcessedEmailModel, ThreadMapModel
     from app.db.database import SessionLocal
 
