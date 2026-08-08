@@ -237,6 +237,8 @@ def evaluate_deterministic_rules(email_data: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "should_create_task": True,
         "skip_reason": None,
+        "title": subject or f"Request from {from_name or from_email}",
+        "description": clean_body[:200] if clean_body else (subject or "Email Request"),
         "assignee_id": assignee_id,
         "category": category,
         "priority": priority,
@@ -244,5 +246,5 @@ def evaluate_deterministic_rules(email_data: Dict[str, Any]) -> Dict[str, Any]:
         "deal_value_inr": deal_value,
         "company_name": company_name,
         "confidence": confidence,
-        "reasoning": " ".join(reasoning)
+        "reasoning": " ".join(reasoning) or "Evaluated via deterministic rules engine."
     }
