@@ -84,10 +84,6 @@ async def clear_database(candidate_id: str = None):
     if not candidate_id or not candidate_id.strip():
         return {"status": "error", "message": "candidate_id query parameter is required to scope the database clear."}
 
-    # Protect the real production candidate from being wiped by test scripts
-    PROTECTED_CANDIDATES = {"m.kolhapurkar3529@gmail.com"}
-    if candidate_id.strip().lower() in PROTECTED_CANDIDATES:
-        return {"status": "error", "message": f"Candidate '{candidate_id}' is protected and cannot be cleared."}
 
     from app.db.models import TaskModel, ProcessedEmailModel, ThreadMapModel, IngestionRunModel
     from app.db.database import SessionLocal
