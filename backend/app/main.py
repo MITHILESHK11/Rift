@@ -94,14 +94,13 @@ async def clear_database(candidate_id: str = None):
 
     if is_mongo_active():
         # Scoped delete — only this candidate's data
-        mongo_db = get_motor_db() if True else None
-        from app.db.mongo import get_motor_db as _get_motor_db
-        _mongo_db = _get_motor_db()
-        if _mongo_db is not None:
-            await _mongo_db.tasks.delete_many({"candidate_id": norm_id})
-            await _mongo_db.processed_emails.delete_many({"candidate_id": norm_id})
-            await _mongo_db.thread_map.delete_many({"candidate_id": norm_id})
-            await _mongo_db.ingestion_runs.delete_many({"candidate_id": norm_id})
+        from app.db.mongo import get_motor_db
+        mongo_db = get_motor_db()
+        if mongo_db is not None:
+            await mongo_db.tasks.delete_many({"candidate_id": norm_id})
+            await mongo_db.processed_emails.delete_many({"candidate_id": norm_id})
+            await mongo_db.thread_map.delete_many({"candidate_id": norm_id})
+            await mongo_db.ingestion_runs.delete_many({"candidate_id": norm_id})
             cleaned_mongo = True
 
     session = SessionLocal()
