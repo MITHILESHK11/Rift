@@ -1,8 +1,14 @@
+import os
 import httpx
+from dotenv import load_dotenv
+
+load_dotenv()
 
 def main():
-    prod_url = "https://rift-tan.vercel.app"
-    cand_id = "m.kolhapurkar3529@gmail.com"
+    prod_url = os.getenv("PROD_URL", "https://rift-tan.vercel.app")
+    cand_id = os.getenv("CANDIDATE_ID", "evaluator.test@gmail.com")
+    if not cand_id or not cand_id.strip():
+        cand_id = "evaluator.test@gmail.com"
     
     print("Checking Production Tasks...")
     try:

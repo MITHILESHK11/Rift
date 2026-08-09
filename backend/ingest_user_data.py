@@ -13,7 +13,12 @@ def main():
         
     print(f"Loaded {len(emails)} emails from test.json")
     
-    cand_id = "m.kolhapurkar3529@gmail.com"
+    from dotenv import load_dotenv
+    load_dotenv()
+    cand_id = os.getenv("CANDIDATE_ID", "evaluator.test@gmail.com")
+    if not cand_id or not cand_id.strip():
+        cand_id = "evaluator.test@gmail.com"
+        
     payload = {
         "candidate_id": cand_id,
         "emails": emails
