@@ -9,6 +9,7 @@ import ChatPanel from './components/ChatPanel';
 import DecisionCenter from './components/DecisionCenter';
 import ReviewQueue from './components/ReviewQueue';
 import RunHistory from './components/RunHistory';
+import Settings from './components/Settings';
 
 const DEFAULT_CANDIDATE_ID = "priya.sharma@gmail.com";
 const API_BASE = import.meta.env.VITE_BACKEND_URL || "";
@@ -83,15 +84,19 @@ export default function App() {
   };
 
   const handleClearDatabase = async () => {
-    if (!window.confirm("Are you sure you want to reset the database? All tasks and logs will be wiped.")) return;
     try {
-      const res = await fetch(`${API_BASE}/api/clear-database`, { method: 'POST' });
-      if (res.ok) {
-        setStatusBanner({ type: 'success', message: 'Database wiped clean successfully.' });
+      const res = await fetch(`${API_BASE}/api/clear-database?candidate_id=${encodeURIComponent(candidateId)}`, { method: 'POST' });
+      const data = await res.json();
+      if (res.ok && data.status !== 'error') {
+        setStatusBanner({ type: 'success', message: `Database for candidate '${candidateId}' wiped clean successfully.` });
         await fetchTasksAndStats();
+        return data;
+      } else {
+        throw new Error(data.message || 'Failed to clear database');
       }
     } catch (err) {
       setStatusBanner({ type: 'error', message: 'Failed to clear database: ' + err.message });
+      throw err;
     }
   };
 
@@ -209,6 +214,7 @@ export default function App() {
                   {activeTab === 'decision-center' && 'Operations Decision Center'}
                   {activeTab === 'review-queue' && 'Human Triage Review Queue'}
                   {activeTab === 'run-history' && 'Ingestion Run Telemetry'}
+                  {activeTab === 'settings' && 'Settings & System Actions'}
                 </h2>
                 <p className="text-body-md font-body-md text-on-surface-variant mt-1">
                   {activeTab === 'inbox' && 'Process raw payload data for automated triage and CRM sync.'}
@@ -218,6 +224,7 @@ export default function App() {
                   {activeTab === 'decision-center' && 'Analyze confidence telemetry, spurious rates, and decision traces.'}
                   {activeTab === 'review-queue' && 'Audit, calibrate, and override ambiguous classification decisions.'}
                   {activeTab === 'run-history' && 'Track and trace batch processing execution runs.'}
+                  {activeTab === 'settings' && 'Manage database resources and candidate scopes.'}
                 </p>
               </div>
             </div>
@@ -300,6 +307,13 @@ export default function App() {
               <RunHistory
                 candidateId={candidateId}
                 API_BASE={API_BASE}
+              />
+            )}
+
+            {activeTab === 'settings' && (
+              <Settings
+                candidateId={candidateId}
+                onClearDatabase={handleClearDatabase}
               />
             )}
           </div>

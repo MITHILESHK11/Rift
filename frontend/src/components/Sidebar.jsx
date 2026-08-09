@@ -53,14 +53,7 @@ export default function Sidebar({ activeTab, setActiveTab, candidateId, setCandi
         )}
       </div>
 
-      {/* Database Reset Action */}
-      <button
-        onClick={onClearDatabase}
-        className="w-full mb-6 py-2 px-3 bg-surface-container-lowest border border-outline-variant text-on-surface rounded font-body-sm text-body-sm flex items-center justify-center gap-2 hover:bg-error-container hover:text-error transition-colors"
-      >
-        <span className="material-symbols-outlined text-[16px]">delete</span>
-        Reset Database
-      </button>
+
 
       {/* Navigation */}
       <div className="flex flex-col gap-1.5 flex-1 overflow-y-auto">
@@ -152,6 +145,20 @@ export default function Sidebar({ activeTab, setActiveTab, candidateId, setCandi
         >
           <span className="material-symbols-outlined text-[20px]">history</span>
           Run History
+        </button>
+
+        <div className="text-[10px] font-bold text-on-surface-variant/60 tracking-wider px-3 mt-4 mb-1 uppercase">Settings</div>
+
+        <button
+          onClick={() => setActiveTab('settings')}
+          className={`flex items-center gap-3 px-3 py-2 rounded-lg text-body-md font-body-md transition-all text-left w-full ${
+            activeTab === 'settings'
+              ? 'bg-secondary-container text-on-secondary-container font-semibold'
+              : 'text-on-surface-variant hover:bg-surface-container-high'
+          }`}
+        >
+          <span className="material-symbols-outlined text-[20px]">settings</span>
+          Reset Database
         </button>
       </div>
 
